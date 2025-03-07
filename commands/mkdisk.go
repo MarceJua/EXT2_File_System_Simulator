@@ -108,7 +108,7 @@ func ParseMkdisk(tokens []string) (*MKDISK, error) {
 		cmd.fit = "FF"
 	}
 
-	// Crear el disco con los parámetros proporcionados ----------------------------------------------
+	// Crear el disco con los parámetros proporcionados
 	err := commandMkdisk(cmd)
 	if err != nil {
 		fmt.Println("Error:", err)
@@ -203,6 +203,11 @@ func createMBR(mkdisk *MKDISK, sizeBytes int) error {
 			{Part_status: [1]byte{'N'}, Part_type: [1]byte{'N'}, Part_fit: [1]byte{'N'}, Part_start: -1, Part_size: -1, Part_name: [16]byte{'N'}, Part_correlative: -1, Part_id: [4]byte{'N'}},
 		},
 	}
+
+	/* SOLO PARA VERIFICACIÓN */
+	// Imprimir MBR
+	fmt.Println("\nMBR creado:")
+	mbr.PrintMBR()
 
 	// Serializar el MBR en el archivo
 	err := mbr.SerializeMBR(mkdisk.path)

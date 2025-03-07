@@ -1,1 +1,6 @@
 # mkdisk -size=5 -unit=M -fit=WF -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+fdisk -size=1 -type=P -unit=M -fit=BF -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+fdisk -size=2 -type=P -unit=M -fit=WF -name="Particion2" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+
+mount -name="Particion2" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"

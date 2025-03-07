@@ -9,30 +9,36 @@ import (
 )
 
 func main() {
-	scanner := bufio.NewScanner(os.Stdin) //create a new scanner object to read input from the user
+	// Crea un nuevo escáner que lee desde la entrada estándar (teclado)
+	scanner := bufio.NewScanner(os.Stdin)
 
+	// Bucle infinito para leer comandos del usuario
 	for {
-		fmt.Print(">>> ") //print the prompt
+		fmt.Print(">>> ") // Imprime el prompt para el usuario
 
-		if !scanner.Scan() { //scan the input from the user
-			break //if there is an error, break the loop
+		// Lee la siguiente línea de entrada del usuario
+		if !scanner.Scan() {
+			break // Si no hay más líneas para leer, rompe el bucle
 		}
 
-		input := scanner.Text() //get the input from the user
+		// Obtiene el texto ingresado por el usuario
+		input := scanner.Text()
 
-		_, err := analyzer.Analyzer(input) //scan the input from the user
+		// Llama a la función Analyzer del paquete analyzer para analizar el comando ingresado
+		_, err := analyzer.Analyzer(input)
 		if err != nil {
-			fmt.Println("Error: ", err) //print the error message
+			// Si hay un error al analizar el comando, imprime el error y continúa con el siguiente comando
+			fmt.Println("Error:", err)
 			continue
 		}
 
-		//Aqui se podria imprimir el comando analizado
-		//fmt.Println("Parsed Command: %+v\n", cmd)
-
+		// Comentado: Aquí podrías imprimir el comando analizado
+		// fmt.Printf("Parsed Command: %+v\n", cmd)
 	}
 
-	if err := scanner.Err(); err != nil { //check if there is an error
-		fmt.Fprintln(os.Stderr, "reading standard input:", err) //print the error message
-		//fmt.Println("Error al leer:", err)
+	// Verifica si hubo algún error al leer la entrada
+	if err := scanner.Err(); err != nil {
+		// Si hubo un error al leer la entrada, lo imprime
+		fmt.Println("Error al leer:", err)
 	}
 }
