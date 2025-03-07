@@ -5,9 +5,9 @@ import (
 	"fmt"    // Paquete para formatear cadenas y realizar operaciones de entrada/salida
 	"regexp" // Paquete para trabajar con expresiones regulares, útil para encontrar y manipular patrones en cadenas
 
-	"github.com/MarceJua/MIA_1S2025_P1_202010367/stores"
+	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/stores"
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/structures" // Paquete que contiene las estructuras de datos necesarias para el manejo de discos y particiones
-	"github.com/MarceJua/MIA_1S2025_P1_202010367/utils"
+	utils "github.com/MarceJua/MIA_1S2025_P1_202010367/utils"
 
 	// Paquete para convertir cadenas a otros tipos de datos, como enteros
 	"strings" // Paquete para manipular cadenas, como unir, dividir, y modificar contenido de cadenas
@@ -111,7 +111,7 @@ func commandMount(mount *MOUNT) error {
 	partition.PrintPartition()
 
 	// Generar un id único para la partición
-	idPartition, err := generatePartitionID(mount, indexPartition)
+	idPartition, partitionCorrelative, err := generatePartitionID(mount)
 	if err != nil {
 		fmt.Println("Error generando el id de partición:", err)
 		return err
@@ -121,11 +121,11 @@ func commandMount(mount *MOUNT) error {
 	stores.MountedPartitions[idPartition] = mount.path
 
 	// Modificamos la partición para indicar que está montada
-	partition.MountPartition(indexPartition, idPartition)
+	partition.MountPartition(partitionCorrelative, idPartition)
 
 	/* SOLO PARA VERIFICACIÓN */
 	// Print para verificar que la partición se haya montado correctamente
-	fmt.Println("\nPartición creada (modificada):")
+	fmt.Println("\nPartición montada (modificada):")
 	partition.PrintPartition()
 
 	// Guardar la partición modificada en el MBR
@@ -141,16 +141,16 @@ func commandMount(mount *MOUNT) error {
 	return nil
 }
 
-func generatePartitionID(mount *MOUNT, indexPartition int) (string, error) {
-	// Asignar una letra a la partición
-	letter, err := utils.GetLetter(mount.path)
+func generatePartitionID(mount *MOUNT) (string, int, error) {
+	// Asignar una letra a la partición y obtener el índice
+	letter, partitionCorrelative, err := utils.GetLetterAndPartitionCorrelative(mount.path)
 	if err != nil {
 		fmt.Println("Error obteniendo la letra:", err)
-		return "", err
+		return "", 0, err
 	}
 
 	// Crear id de partición
-	idPartition := fmt.Sprintf("%s%d%s", stores.Carnet, indexPartition, letter)
+	idPartition := fmt.Sprintf("%s%d%s", stores.Carnet, partitionCorrelative, letter)
 
-	return idPartition, nil
+	return idPartition, partitionCorrelative, nil
 }

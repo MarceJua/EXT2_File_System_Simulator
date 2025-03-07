@@ -2,7 +2,7 @@ package structures
 
 import "fmt"
 
-type PARTITION struct {
+type Partition struct {
 	Part_status      [1]byte  // Estado de la partición
 	Part_type        [1]byte  // Tipo de partición
 	Part_fit         [1]byte  // Ajuste de la partición
@@ -23,7 +23,7 @@ Esto queda a su criterio.
 */
 
 // Crear una partición con los parámetros proporcionados
-func (p *PARTITION) CreatePartition(partStart, partSize int, partType, partFit, partName string) {
+func (p *Partition) CreatePartition(partStart, partSize int, partType, partFit, partName string) {
 	// Asignar status de la partición
 	p.Part_status[0] = '0' // El valor '0' indica que la partición ha sido creada
 
@@ -48,7 +48,7 @@ func (p *PARTITION) CreatePartition(partStart, partSize int, partType, partFit, 
 }
 
 // Montar una partición por el id
-func (p *PARTITION) MountPartition(correlative int, id string) error {
+func (p *Partition) MountPartition(correlative int, id string) error {
 	// Asignar status de la partición
 	p.Part_status[0] = '1' // El valor '1' indica que la partición ha sido montada
 
@@ -62,7 +62,7 @@ func (p *PARTITION) MountPartition(correlative int, id string) error {
 }
 
 // Imprimir los valores de la partición
-func (p *PARTITION) PrintPartition() {
+func (p *Partition) PrintPartition() {
 	fmt.Printf("Part_status: %c\n", p.Part_status[0])
 	fmt.Printf("Part_type: %c\n", p.Part_type[0])
 	fmt.Printf("Part_fit: %c\n", p.Part_fit[0])

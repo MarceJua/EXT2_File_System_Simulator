@@ -30,8 +30,6 @@ type MKDISK struct {
    mkdisk -size=10 -path="/home/mis discos/Disco4.mia"
 */
 
-// Aca empieza el analizador
-
 func ParseMkdisk(tokens []string) (*MKDISK, error) {
 	cmd := &MKDISK{} // Crea una nueva instancia de MKDISK
 
@@ -194,7 +192,7 @@ func createMBR(mkdisk *MKDISK, sizeBytes int) error {
 		Mbr_creation_date:  float32(time.Now().Unix()),
 		Mbr_disk_signature: rand.Int31(),
 		Mbr_disk_fit:       [1]byte{fitByte},
-		Mbr_partitions: [4]structures.PARTITION{
+		Mbr_partitions: [4]structures.Partition{
 			// Inicializó todos los char en N y los enteros en -1 para que se puedan apreciar en el archivo binario.
 
 			{Part_status: [1]byte{'N'}, Part_type: [1]byte{'N'}, Part_fit: [1]byte{'N'}, Part_start: -1, Part_size: -1, Part_name: [16]byte{'N'}, Part_correlative: -1, Part_id: [4]byte{'N'}},
