@@ -163,7 +163,7 @@ func createPrimaryPartition(fdisk *FDISK, sizeBytes int) error {
 	var mbr structures.MBR
 
 	// Deserializar la estructura MBR desde un archivo binario
-	err := mbr.DeserializeMBR(fdisk.path)
+	err := mbr.Deserialize(fdisk.path)
 	if err != nil {
 		fmt.Println("Error deserializando el MBR:", err)
 		return err
@@ -202,7 +202,7 @@ func createPrimaryPartition(fdisk *FDISK, sizeBytes int) error {
 	mbr.PrintPartitions()
 
 	// Serializar el MBR en el archivo binario
-	err = mbr.SerializeMBR(fdisk.path)
+	err = mbr.Serialize(fdisk.path)
 	if err != nil {
 		fmt.Println("Error:", err)
 	}

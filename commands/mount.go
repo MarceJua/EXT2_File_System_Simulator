@@ -92,7 +92,7 @@ func commandMount(mount *MOUNT) error {
 	var mbr structures.MBR
 
 	// Deserializar la estructura MBR desde un archivo binario
-	err := mbr.DeserializeMBR(mount.path)
+	err := mbr.Deserialize(mount.path)
 	if err != nil {
 		fmt.Println("Error deserializando el MBR:", err)
 		return err
@@ -132,7 +132,7 @@ func commandMount(mount *MOUNT) error {
 	mbr.Mbr_partitions[indexPartition] = *partition
 
 	// Serializar la estructura MBR en el archivo binario
-	err = mbr.SerializeMBR(mount.path)
+	err = mbr.Serialize(mount.path)
 	if err != nil {
 		fmt.Println("Error serializando el MBR:", err)
 		return err

@@ -208,7 +208,7 @@ func createMBR(mkdisk *MKDISK, sizeBytes int) error {
 	mbr.PrintMBR()
 
 	// Serializar el MBR en el archivo
-	err := mbr.SerializeMBR(mkdisk.path)
+	err := mbr.Serialize(mkdisk.path)
 	if err != nil {
 		fmt.Println("Error:", err)
 	}

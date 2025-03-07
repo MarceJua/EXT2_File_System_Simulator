@@ -19,7 +19,7 @@ type MBR struct {
 }
 
 // SerializeMBR escribe la estructura MBR al inicio de un archivo binario
-func (mbr *MBR) SerializeMBR(path string) error {
+func (mbr *MBR) Serialize(path string) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		return err
@@ -36,7 +36,7 @@ func (mbr *MBR) SerializeMBR(path string) error {
 }
 
 // DeserializeMBR lee la estructura MBR desde el inicio de un archivo binario
-func (mbr *MBR) DeserializeMBR(path string) error {
+func (mbr *MBR) Deserialize(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
