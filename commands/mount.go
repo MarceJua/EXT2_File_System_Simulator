@@ -3,6 +3,7 @@ package commands
 import (
 	"errors" // Paquete para manejar errores y crear nuevos errores con mensajes personalizados
 	"fmt"    // Paquete para formatear cadenas y realizar operaciones de entrada/salida
+	"os"
 	"regexp" // Paquete para trabajar con expresiones regulares, útil para encontrar y manipular patrones en cadenas
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/stores"
@@ -27,130 +28,142 @@ type MOUNT struct {
 
 // CommandMount parsea el comando mount y devuelve una instancia de MOUNT
 func ParseMount(tokens []string) (*MOUNT, error) {
-	cmd := &MOUNT{} // Crea una nueva instancia de MOUNT
-
-	// Unir tokens en una sola cadena y luego dividir por espacios, respetando las comillas
+	cmd := &MOUNT{}
 	args := strings.Join(tokens, " ")
-	// Expresión regular para encontrar los parámetros del comando mount
 	re := regexp.MustCompile(`-path="[^"]+"|-path=[^\s]+|-name="[^"]+"|-name=[^\s]+`)
-	// Encuentra todas las coincidencias de la expresión regular en la cadena de argumentos
 	matches := re.FindAllString(args, -1)
 
-	// Itera sobre cada coincidencia encontrada
 	for _, match := range matches {
-		// Divide cada parte en clave y valor usando "=" como delimitador
 		kv := strings.SplitN(match, "=", 2)
-		if len(kv) != 2 {
-			return nil, fmt.Errorf("formato de parámetro inválido: %s", match)
-		}
-		key, value := strings.ToLower(kv[0]), kv[1]
-
-		// Remove quotes from value if present
-		if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-			value = strings.Trim(value, "\"")
-		}
-
-		// Switch para manejar diferentes parámetros
+		key, value := strings.ToLower(kv[0]), strings.Trim(kv[1], "\"")
 		switch key {
 		case "-path":
-			// Verifica que el path no esté vacío
 			if value == "" {
 				return nil, errors.New("el path no puede estar vacío")
 			}
 			cmd.path = value
 		case "-name":
-			// Verifica que el nombre no esté vacío
 			if value == "" {
 				return nil, errors.New("el nombre no puede estar vacío")
 			}
 			cmd.name = value
-		default:
-			// Si el parámetro no es reconocido, devuelve un error
-			return nil, fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
-	// Verifica que los parámetros -path y -name hayan sido proporcionados
-	if cmd.path == "" {
-		return nil, errors.New("faltan parámetros requeridos: -path")
-	}
-	if cmd.name == "" {
-		return nil, errors.New("faltan parámetros requeridos: -name")
+	if cmd.path == "" || cmd.name == "" {
+		return nil, errors.New("faltan parámetros requeridos: -path o -name")
 	}
 
-	// Montamos la partición
 	err := commandMount(cmd)
 	if err != nil {
-		fmt.Println("Error:", err)
+		return nil, err
 	}
-
-	return cmd, nil // Devuelve el comando MOUNT creado
+	return cmd, nil
 }
 
 func commandMount(mount *MOUNT) error {
 	// Crear una instancia de MBR
 	var mbr structures.MBR
+	if err := mbr.Deserialize(mount.path); err != nil {
+		return fmt.Errorf("error al deserializar MBR: %v", err)
+	}
 
-	// Deserializar la estructura MBR desde un archivo binario
-	err := mbr.Deserialize(mount.path)
+	// Buscar en primarias/extendidas primero
+	partition, idx := mbr.GetPartitionByName(mount.name)
+	if partition != nil {
+		if partition.Part_status[0] == '1' {
+			return errors.New("la partición ya está montada")
+		}
+		if partition.Part_type[0] == 'E' {
+			return errors.New("no se pueden montar particiones extendidas")
+		}
+
+		id, correlative, err := generatePartitionID(mount)
+		if err != nil {
+			return fmt.Errorf("error generando ID: %v", err)
+		}
+		if _, exists := stores.MountedPartitions[id]; exists {
+			return errors.New("el ID ya está en uso")
+		}
+
+		partition.MountPartition(correlative, id)
+		mbr.Mbr_partitions[idx] = *partition
+		stores.MountedPartitions[id] = mount.path
+		fmt.Printf("Partición primaria montada con ID: %s\n", id)
+		return mbr.Serialize(mount.path)
+	}
+
+	// Si no está en el MBR, buscar en las lógicas
+	file, err := os.OpenFile(mount.path, os.O_RDWR, 0644)
 	if err != nil {
-		fmt.Println("Error deserializando el MBR:", err)
-		return err
+		return fmt.Errorf("error al abrir disco: %v", err)
+	}
+	defer file.Close()
+
+	// Buscar partición extendida
+	var extPartition *structures.Partition
+	for _, p := range mbr.Mbr_partitions {
+		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
+			extPartition = &p
+			break
+		}
+	}
+	if extPartition == nil {
+		return errors.New("partición no encontrada (no hay extendida para lógicas)")
 	}
 
-	// Buscar la partición con el nombre especificado
-	partition, indexPartition := mbr.GetPartitionByName(mount.name)
-	if partition == nil {
-		fmt.Println("Error: la partición no existe")
-		return errors.New("la partición no existe")
+	// Recorrer los EBRs
+	startExt := int64(extPartition.Part_start)
+	var currentEBR structures.EBR
+	err = currentEBR.Deserialize(file, startExt)
+	if err != nil || currentEBR.Part_status[0] == 0 || currentEBR.Part_status[0] == 'N' {
+		return errors.New("partición lógica no encontrada")
 	}
 
-	/* SOLO PARA VERIFICACIÓN */
-	// Print para verificar que la partición se encontró correctamente
-	fmt.Println("\nPartición disponible:")
-	partition.PrintPartition()
+	currentOffset := startExt
+	for {
+		ebName := strings.Trim(string(currentEBR.Part_name[:]), "\x00")
+		if ebName == mount.name {
+			if currentEBR.Part_status[0] == '1' {
+				return errors.New("la partición lógica ya está montada")
+			}
 
-	// Generar un id único para la partición
-	idPartition, partitionCorrelative, err := generatePartitionID(mount)
-	if err != nil {
-		fmt.Println("Error generando el id de partición:", err)
-		return err
+			id, _, err := generatePartitionID(mount) // Ignorar correlative con _
+			if err != nil {
+				return fmt.Errorf("error generando ID: %v", err)
+			}
+			if _, exists := stores.MountedPartitions[id]; exists {
+				return errors.New("el ID ya está en uso")
+			}
+
+			// Actualizar EBR a montada
+			currentEBR.Part_status = [1]byte{'1'}
+			if err := currentEBR.Serialize(file, currentOffset); err != nil {
+				return fmt.Errorf("error al serializar EBR: %v", err)
+			}
+			stores.MountedPartitions[id] = mount.path
+			fmt.Printf("Partición lógica montada con ID: %s\n", id)
+			return nil
+		}
+
+		if currentEBR.Part_next == -1 {
+			break
+		}
+		currentOffset = int64(currentEBR.Part_next)
+		if err := currentEBR.Deserialize(file, currentOffset); err != nil {
+			return fmt.Errorf("error al leer EBR: %v", err)
+		}
 	}
 
-	//  Guardar la partición montada en la lista de montajes globales
-	stores.MountedPartitions[idPartition] = mount.path
-
-	// Modificamos la partición para indicar que está montada
-	partition.MountPartition(partitionCorrelative, idPartition)
-
-	/* SOLO PARA VERIFICACIÓN */
-	// Print para verificar que la partición se haya montado correctamente
-	fmt.Println("\nPartición montada (modificada):")
-	partition.PrintPartition()
-
-	// Guardar la partición modificada en el MBR
-	mbr.Mbr_partitions[indexPartition] = *partition
-
-	// Serializar la estructura MBR en el archivo binario
-	err = mbr.Serialize(mount.path)
-	if err != nil {
-		fmt.Println("Error serializando el MBR:", err)
-		return err
-	}
-
-	return nil
+	return errors.New("partición lógica no encontrada")
 }
 
 func generatePartitionID(mount *MOUNT) (string, int, error) {
 	// Asignar una letra a la partición y obtener el índice
 	letter, partitionCorrelative, err := utils.GetLetterAndPartitionCorrelative(mount.path)
 	if err != nil {
-		fmt.Println("Error obteniendo la letra:", err)
-		return "", 0, err
+		return "", 0, fmt.Errorf("error obteniendo letra: %v", err)
 	}
-
-	// Crear id de partición
 	idPartition := fmt.Sprintf("%s%d%s", stores.Carnet, partitionCorrelative, letter)
-
 	return idPartition, partitionCorrelative, nil
 }
