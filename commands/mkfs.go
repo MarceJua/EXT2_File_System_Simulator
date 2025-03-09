@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 type MKFS struct {
 	id  string // ID del disco
 	typ string // Tipo de formato (full)
+	fs  string // Tipo de sistema de archivos (2fs o 3fs)
 }
 
 /*
@@ -25,148 +27,164 @@ type MKFS struct {
 */
 
 func ParseMkfs(tokens []string) (*MKFS, error) {
-	cmd := &MKFS{} // Crea una nueva instancia de MKFS
-
-	// Unir tokens en una sola cadena y luego dividir por espacios, respetando las comillas
+	cmd := &MKFS{typ: "full", fs: "2fs"}
 	args := strings.Join(tokens, " ")
-	// Expresión regular para encontrar los parámetros del comando mkfs
-	re := regexp.MustCompile(`-id=[^\s]+|-type=[^\s]+`)
-	// Encuentra todas las coincidencias de la expresión regular en la cadena de argumentos
+	re := regexp.MustCompile(`-id=[^\s]+|-type=[^\s]+|-fs=[23]fs`)
 	matches := re.FindAllString(args, -1)
 
-	// Itera sobre cada coincidencia encontrada
 	for _, match := range matches {
-		// Divide cada parte en clave y valor usando "=" como delimitador
 		kv := strings.SplitN(match, "=", 2)
 		if len(kv) != 2 {
 			return nil, fmt.Errorf("formato de parámetro inválido: %s", match)
 		}
-		key, value := strings.ToLower(kv[0]), kv[1]
-
-		// Remove quotes from value if present
-		if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-			value = strings.Trim(value, "\"")
-		}
-
-		// Switch para manejar diferentes parámetros
+		key, value := strings.ToLower(kv[0]), strings.Trim(kv[1], "\"")
 		switch key {
 		case "-id":
-			// Verifica que el id no esté vacío
 			if value == "" {
 				return nil, errors.New("el id no puede estar vacío")
 			}
 			cmd.id = value
 		case "-type":
-			// Verifica que el tipo sea "full"
 			if value != "full" {
 				return nil, errors.New("el tipo debe ser full")
 			}
 			cmd.typ = value
+		case "-fs":
+			if value != "2fs" && value != "3fs" {
+				return nil, errors.New("el fs debe ser 2fs o 3fs")
+			}
+			cmd.fs = value
 		default:
-			// Si el parámetro no es reconocido, devuelve un error
 			return nil, fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
-	// Verifica que el parámetro -id haya sido proporcionado
 	if cmd.id == "" {
 		return nil, errors.New("faltan parámetros requeridos: -id")
 	}
 
-	// Si no se proporcionó el tipo, se establece por defecto a "full"
-	if cmd.typ == "" {
-		cmd.typ = "full"
-	}
-
-	// Aquí se puede agregar la lógica para ejecutar el comando mkfs con los parámetros proporcionados
 	err := commandMkfs(cmd)
 	if err != nil {
-		fmt.Println("Error:", err)
+		return nil, err
 	}
-
-	return cmd, nil // Devuelve el comando MKFS creado
+	return cmd, nil
 }
 
 func commandMkfs(mkfs *MKFS) error {
-	// Obtener la partición montada
-	mountedPartition, partitionPath, err := stores.GetMountedPartition(mkfs.id)
-	if err != nil {
-		return err
+	partitionPath, exists := stores.MountedPartitions[mkfs.id]
+	if !exists {
+		return errors.New("partición no montada")
 	}
 
-	// Verificar la partición montada
-	fmt.Println("\nPatición montada:")
-	mountedPartition.PrintPartition()
+	file, err := os.OpenFile(partitionPath, os.O_RDWR, 0644)
+	if err != nil {
+		return fmt.Errorf("error al abrir disco: %v", err)
+	}
+	defer file.Close()
 
-	// Calcular el valor de n
-	n := calculateN(mountedPartition)
+	var mbr structures.MBR
+	if err := mbr.Deserialize(partitionPath); err != nil {
+		return fmt.Errorf("error al deserializar MBR: %v", err)
+	}
 
-	// Verificar el valor de n
+	var partition *structures.Partition
+	var startOffset int64
+	var partitionSize int32
+	for _, p := range mbr.Mbr_partitions {
+		if string(p.Part_id[:]) == mkfs.id {
+			partition = &p
+			startOffset = int64(p.Part_start)
+			partitionSize = p.Part_size
+			break
+		}
+	}
+
+	if partition == nil {
+		var extPartition *structures.Partition
+		for _, p := range mbr.Mbr_partitions {
+			if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
+				extPartition = &p
+				break
+			}
+		}
+		if extPartition == nil {
+			return errors.New("partición no encontrada (no hay extendida)")
+		}
+
+		var currentEBR structures.EBR
+		currentOffset := int64(extPartition.Part_start)
+		for {
+			if err := currentEBR.Deserialize(file, currentOffset); err != nil {
+				return fmt.Errorf("error al leer EBR: %v", err)
+			}
+			if string(currentEBR.Part_id[:]) == mkfs.id {
+				startOffset = int64(currentEBR.Part_start)
+				partitionSize = currentEBR.Part_size
+				break
+			}
+			if currentEBR.Part_next == -1 {
+				return errors.New("partición lógica no encontrada")
+			}
+			currentOffset = int64(currentEBR.Part_next)
+		}
+	} else {
+		fmt.Println("\nPartición montada (primaria):")
+		partition.PrintPartition()
+	}
+
+	var sbCheck structures.SuperBlock
+	if err := sbCheck.Deserialize(partitionPath, startOffset); err == nil && sbCheck.S_magic == 0xEF53 {
+		return errors.New("la partición ya está formateada")
+	}
+
+	n := calculateN(partitionSize)
 	fmt.Println("\nValor de n:", n)
 
-	// Inicializar un nuevo superbloque
-	superBlock := createSuperBlock(mountedPartition, n)
-
-	// Verificar el superbloque
+	superBlock := createSuperBlock(startOffset, n, mkfs.fs)
 	fmt.Println("\nSuperBlock:")
 	superBlock.Print()
 
-	// Crear los bitmaps
-	err = superBlock.CreateBitMaps(partitionPath)
-	if err != nil {
+	if err := superBlock.CreateBitMaps(partitionPath); err != nil {
+		return err
+	}
+	if err := superBlock.CreateUsersFile(partitionPath); err != nil {
 		return err
 	}
 
-	// Crear archivo users.txt
-	err = superBlock.CreateUsersFile(partitionPath)
-	if err != nil {
-		return err
-	}
-
-	// Verificar superbloque actualizado
 	fmt.Println("\nSuperBlock actualizado:")
 	superBlock.Print()
 
-	// Serializar el superbloque
-	err = superBlock.Serialize(partitionPath, int64(mountedPartition.Part_start))
-	if err != nil {
+	if err := superBlock.Serialize(partitionPath, startOffset); err != nil {
 		return err
 	}
 
+	fmt.Printf("Partición %s formateada con éxito\n", mkfs.id)
 	return nil
 }
 
-func calculateN(partition *structures.Partition) int32 {
-	/*
-		numerador = (partition_montada.size - sizeof(Structs::Superblock)
-		denominador base = (4 + sizeof(Structs::Inodes) + 3 * sizeof(Structs::Fileblock))
-		n = floor(numerador / denominador)
-	*/
-
-	numerator := int(partition.Part_size) - binary.Size(structures.SuperBlock{})
-	denominator := 4 + binary.Size(structures.Inode{}) + 3*binary.Size(structures.FileBlock{}) // No importa que bloque poner, ya que todos tienen el mismo tamaño
-	n := math.Floor(float64(numerator) / float64(denominator))
-
-	return int32(n)
+func calculateN(size int32) int32 {
+	numerator := int(size) - binary.Size(structures.SuperBlock{})
+	denominator := 4 + binary.Size(structures.Inode{}) + 3*binary.Size(structures.FileBlock{})
+	return int32(math.Floor(float64(numerator) / float64(denominator)))
 }
 
-func createSuperBlock(partition *structures.Partition, n int32) *structures.SuperBlock {
-	// Calcular punteros de las estructuras
-	// Bitmaps
-	bm_inode_start := partition.Part_start + int32(binary.Size(structures.SuperBlock{}))
-	bm_block_start := bm_inode_start + n // n indica la cantidad de inodos, solo la cantidad para ser representada en un bitmap
-	// Inodos
-	inode_start := bm_block_start + (3 * n) // 3*n indica la cantidad de bloques, se multiplica por 3 porque se tienen 3 tipos de bloques
-	// Bloques
-	block_start := inode_start + (int32(binary.Size(structures.Inode{})) * n) // n indica la cantidad de inodos, solo que aquí indica la cantidad de estructuras Inode
+func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBlock {
+	bm_inode_start := int32(startOffset) + int32(binary.Size(structures.SuperBlock{}))
+	bm_block_start := bm_inode_start + n
+	inode_start := bm_block_start + (3 * n)
+	block_start := inode_start + (int32(binary.Size(structures.Inode{})) * n)
 
-	// Crear un nuevo superbloque
-	superBlock := &structures.SuperBlock{
-		S_filesystem_type:   2,
+	fsType := int32(2)
+	if fs == "3fs" {
+		fsType = 3 // EXT3 no implementado aún
+	}
+
+	return &structures.SuperBlock{
+		S_filesystem_type:   fsType,
 		S_inodes_count:      0,
 		S_blocks_count:      0,
-		S_free_inodes_count: int32(n),
-		S_free_blocks_count: int32(n * 3),
+		S_free_inodes_count: n,
+		S_free_blocks_count: n * 3,
 		S_mtime:             float32(time.Now().Unix()),
 		S_umtime:            float32(time.Now().Unix()),
 		S_mnt_count:         1,
@@ -180,5 +198,4 @@ func createSuperBlock(partition *structures.Partition, n int32) *structures.Supe
 		S_inode_start:       inode_start,
 		S_block_start:       block_start,
 	}
-	return superBlock
 }

@@ -100,7 +100,6 @@ func commandMount(mount *MOUNT) error {
 	}
 	defer file.Close()
 
-	// Buscar partición extendida
 	var extPartition *structures.Partition
 	for _, p := range mbr.Mbr_partitions {
 		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
@@ -112,7 +111,6 @@ func commandMount(mount *MOUNT) error {
 		return errors.New("partición no encontrada (no hay extendida para lógicas)")
 	}
 
-	// Recorrer los EBRs
 	startExt := int64(extPartition.Part_start)
 	var currentEBR structures.EBR
 	err = currentEBR.Deserialize(file, startExt)
@@ -128,7 +126,7 @@ func commandMount(mount *MOUNT) error {
 				return errors.New("la partición lógica ya está montada")
 			}
 
-			id, _, err := generatePartitionID(mount) // Ignorar correlative con _
+			id, _, err := generatePartitionID(mount)
 			if err != nil {
 				return fmt.Errorf("error generando ID: %v", err)
 			}
@@ -136,8 +134,9 @@ func commandMount(mount *MOUNT) error {
 				return errors.New("el ID ya está en uso")
 			}
 
-			// Actualizar EBR a montada
+			// Actualizar EBR a montada y asignar Part_id
 			currentEBR.Part_status = [1]byte{'1'}
+			copy(currentEBR.Part_id[:], id)
 			if err := currentEBR.Serialize(file, currentOffset); err != nil {
 				return fmt.Errorf("error al serializar EBR: %v", err)
 			}
