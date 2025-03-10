@@ -2,107 +2,54 @@ package reports
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
+	"strings"
 	"time"
 
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/structures"
-	utils "github.com/MarceJua/MIA_1S2025_P1_202010367/utils"
 )
 
 // ReportInode genera un reporte de un inodo y lo guarda en la ruta especificada
-func ReportInode(superblock *structures.SuperBlock, diskPath string, path string) error {
-	// Crear las carpetas padre si no existen
-	err := utils.CreateParentDirs(path)
-	if err != nil {
-		return err
-	}
+func ReportInode(sb *structures.SuperBlock, diskPath string) (string, error) {
+	var sbBuilder strings.Builder
+	sbBuilder.WriteString("digraph G {\n")
+	sbBuilder.WriteString("  node [shape=plaintext]\n")
 
-	// Obtener el nombre base del archivo sin la extensión
-	dotFileName, outputImage := utils.GetFileNames(path)
-
-	// Iniciar el contenido DOT
-	dotContent := `digraph G {
-        node [shape=plaintext]
-    `
-
-	// Iterar sobre cada inodo
-	for i := int32(0); i < superblock.S_inodes_count; i++ {
+	for i := int32(0); i < sb.S_inodes_count; i++ {
 		inode := &structures.Inode{}
-		// Deserializar el inodo
-		err := inode.Deserialize(diskPath, int64(superblock.S_inode_start+(i*superblock.S_inode_size)))
+		err := inode.Deserialize(diskPath, int64(sb.S_inode_start+(i*sb.S_inode_size)))
 		if err != nil {
-			return err
+			return "", fmt.Errorf("error deserializando inodo %d: %v", i, err)
 		}
 
-		// Convertir tiempos a string
 		atime := time.Unix(int64(inode.I_atime), 0).Format(time.RFC3339)
 		ctime := time.Unix(int64(inode.I_ctime), 0).Format(time.RFC3339)
 		mtime := time.Unix(int64(inode.I_mtime), 0).Format(time.RFC3339)
 
-		// Definir el contenido DOT para el inodo actual
-		dotContent += fmt.Sprintf(`inode%d [label=<
-            <table border="0" cellborder="1" cellspacing="0">
-                <tr><td colspan="2"> REPORTE INODO %d </td></tr>
-                <tr><td>i_uid</td><td>%d</td></tr>
-                <tr><td>i_gid</td><td>%d</td></tr>
-                <tr><td>i_size</td><td>%d</td></tr>
-                <tr><td>i_atime</td><td>%s</td></tr>
-                <tr><td>i_ctime</td><td>%s</td></tr>
-                <tr><td>i_mtime</td><td>%s</td></tr>
-                <tr><td>i_type</td><td>%c</td></tr>
-                <tr><td>i_perm</td><td>%s</td></tr>
-                <tr><td colspan="2">BLOQUES DIRECTOS</td></tr>
-            `, i, i, inode.I_uid, inode.I_gid, inode.I_size, atime, ctime, mtime, rune(inode.I_type[0]), string(inode.I_perm[:]))
-
-		// Agregar los bloques directos a la tabla hasta el índice 11
-		for j, block := range inode.I_block {
-			if j > 11 {
-				break
-			}
-			dotContent += fmt.Sprintf("<tr><td>%d</td><td>%d</td></tr>", j+1, block)
+		sbBuilder.WriteString(fmt.Sprintf("  inode%d [label=<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n", i))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD COLSPAN=\"2\">REPORTE INODO %d</TD></TR>\n", i))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_uid</TD><TD>%d</TD></TR>\n", inode.I_uid))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_gid</TD><TD>%d</TD></TR>\n", inode.I_gid))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_size</TD><TD>%d</TD></TR>\n", inode.I_size))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_atime</TD><TD>%s</TD></TR>\n", atime))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_ctime</TD><TD>%s</TD></TR>\n", ctime))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_mtime</TD><TD>%s</TD></TR>\n", mtime))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_type</TD><TD>%c</TD></TR>\n", inode.I_type[0]))
+		sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>i_perm</TD><TD>%s</TD></TR>\n", string(inode.I_perm[:])))
+		sbBuilder.WriteString("    <TR><TD COLSPAN=\"2\">BLOQUES DIRECTOS</TD></TR>\n")
+		for j := 0; j < 12; j++ {
+			sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>%d</TD><TD>%d</TD></TR>\n", j+1, inode.I_block[j]))
 		}
+		sbBuilder.WriteString("    <TR><TD COLSPAN=\"2\">BLOQUES INDIRECTOS</TD></TR>\n")
+		for j := 12; j < 15; j++ {
+			sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>%d</TD><TD>%d</TD></TR>\n", j+1, inode.I_block[j]))
+		}
+		sbBuilder.WriteString("  </TABLE>>];\n")
 
-		// Agregar los bloques indirectos a la tabla
-		dotContent += fmt.Sprintf(`
-                <tr><td colspan="2">BLOQUE INDIRECTO</td></tr>
-                <tr><td>%d</td><td>%d</td></tr>
-                <tr><td colspan="2">BLOQUE INDIRECTO DOBLE</td></tr>
-                <tr><td>%d</td><td>%d</td></tr>
-                <tr><td colspan="2">BLOQUE INDIRECTO TRIPLE</td></tr>
-                <tr><td>%d</td><td>%d</td></tr>
-            </table>>];
-        `, 13, inode.I_block[12], 14, inode.I_block[13], 15, inode.I_block[14])
-
-		// Agregar enlace al siguiente inodo si no es el último
-		if i < superblock.S_inodes_count-1 {
-			dotContent += fmt.Sprintf("inode%d -> inode%d;\n", i, i+1)
+		if i < sb.S_inodes_count-1 {
+			sbBuilder.WriteString(fmt.Sprintf("  inode%d -> inode%d;\n", i, i+1))
 		}
 	}
 
-	// Cerrar el contenido DOT
-	dotContent += "}"
-
-	// Crear el archivo DOT
-	dotFile, err := os.Create(dotFileName)
-	if err != nil {
-		return err
-	}
-	defer dotFile.Close()
-
-	// Escribir el contenido DOT en el archivo
-	_, err = dotFile.WriteString(dotContent)
-	if err != nil {
-		return err
-	}
-
-	// Generar la imagen con Graphviz
-	cmd := exec.Command("dot", "-Tpng", dotFileName, "-o", outputImage)
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("Imagen de los inodos generada:", outputImage)
-	return nil
+	sbBuilder.WriteString("}\n")
+	return sbBuilder.String(), nil
 }

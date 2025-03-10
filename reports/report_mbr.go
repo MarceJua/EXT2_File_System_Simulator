@@ -2,87 +2,38 @@ package reports
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/structures"
-	utils "github.com/MarceJua/MIA_1S2025_P1_202010367/utils"
+	//utils "github.com/MarceJua/MIA_1S2025_P1_202010367/utils"
 )
 
 // ReportMBR genera un reporte del MBR y lo guarda en la ruta especificada
-func ReportMBR(mbr *structures.MBR, path string) error {
-	// Crear las carpetas padre si no existen
-	err := utils.CreateParentDirs(path)
-	if err != nil {
-		return err
-	}
+func ReportMBR(mbr *structures.MBR) (string, error) {
+	var sb strings.Builder
+	sb.WriteString("digraph G {\n")
+	sb.WriteString("  node [shape=plaintext]\n")
+	sb.WriteString("  tbl [label=<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n")
+	sb.WriteString("    <TR><TD COLSPAN=\"2\">REPORTE MBR</TD></TR>\n")
+	sb.WriteString(fmt.Sprintf("    <TR><TD>mbr_tamano</TD><TD>%d</TD></TR>\n", mbr.Mbr_size))
+	sb.WriteString(fmt.Sprintf("    <TR><TD>mrb_fecha_creacion</TD><TD>%s</TD></TR>\n", time.Unix(int64(mbr.Mbr_creation_date), 0).Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf("    <TR><TD>mbr_disk_signature</TD><TD>%d</TD></TR>\n", mbr.Mbr_disk_signature))
 
-	// Obtener el nombre base del archivo sin la extensión
-	dotFileName, outputImage := utils.GetFileNames(path)
-
-	// Definir el contenido DOT con una tabla
-	dotContent := fmt.Sprintf(`digraph G {
-        node [shape=plaintext]
-        tabla [label=<
-            <table border="0" cellborder="1" cellspacing="0">
-                <tr><td colspan="2"> REPORTE MBR </td></tr>
-                <tr><td>mbr_tamano</td><td>%d</td></tr>
-                <tr><td>mrb_fecha_creacion</td><td>%s</td></tr>
-                <tr><td>mbr_disk_signature</td><td>%d</td></tr>
-            `, mbr.Mbr_size, time.Unix(int64(mbr.Mbr_creation_date), 0), mbr.Mbr_disk_signature)
-
-	// Agregar las particiones a la tabla
 	for i, part := range mbr.Mbr_partitions {
-		/*
-			// Continuar si el tamaño de la partición es -1 (o sea, no está asignada)
-			if part.Part_size == -1 {
-				continue
-			}
-		*/
-
-		// Convertir Part_name a string y eliminar los caracteres nulos
+		if part.Part_size <= 0 || part.Part_status[0] == 'N' {
+			continue // Omitir particiones no asignadas
+		}
 		partName := strings.TrimRight(string(part.Part_name[:]), "\x00")
-		// Convertir Part_status, Part_type y Part_fit a char
-		partStatus := rune(part.Part_status[0])
-		partType := rune(part.Part_type[0])
-		partFit := rune(part.Part_fit[0])
-
-		// Agregar la partición a la tabla
-		dotContent += fmt.Sprintf(`
-				<tr><td colspan="2"> PARTICIÓN %d </td></tr>
-				<tr><td>part_status</td><td>%c</td></tr>
-				<tr><td>part_type</td><td>%c</td></tr>
-				<tr><td>part_fit</td><td>%c</td></tr>
-				<tr><td>part_start</td><td>%d</td></tr>
-				<tr><td>part_size</td><td>%d</td></tr>
-				<tr><td>part_name</td><td>%s</td></tr>
-			`, i+1, partStatus, partType, partFit, part.Part_start, part.Part_size, partName)
+		sb.WriteString(fmt.Sprintf("    <TR><TD COLSPAN=\"2\">PARTICIÓN %d</TD></TR>\n", i+1))
+		sb.WriteString(fmt.Sprintf("    <TR><TD>part_status</TD><TD>%c</TD></TR>\n", part.Part_status[0]))
+		sb.WriteString(fmt.Sprintf("    <TR><TD>part_type</TD><TD>%c</TD></TR>\n", part.Part_type[0]))
+		sb.WriteString(fmt.Sprintf("    <TR><TD>part_fit</TD><TD>%c</TD></TR>\n", part.Part_fit[0]))
+		sb.WriteString(fmt.Sprintf("    <TR><TD>part_start</TD><TD>%d</TD></TR>\n", part.Part_start))
+		sb.WriteString(fmt.Sprintf("    <TR><TD>part_size</TD><TD>%d</TD></TR>\n", part.Part_size))
+		sb.WriteString(fmt.Sprintf("    <TR><TD>part_name</TD><TD>%s</TD></TR>\n", partName))
 	}
-
-	// Cerrar la tabla y el contenido DOT
-	dotContent += "</table>>] }"
-
-	// Guardar el contenido DOT en un archivo
-	file, err := os.Create(dotFileName)
-	if err != nil {
-		return fmt.Errorf("error al crear el archivo: %v", err)
-	}
-	defer file.Close()
-
-	_, err = file.WriteString(dotContent)
-	if err != nil {
-		return fmt.Errorf("error al escribir en el archivo: %v", err)
-	}
-
-	// Ejecutar el comando Graphviz para generar la imagen
-	cmd := exec.Command("dot", "-Tpng", dotFileName, "-o", outputImage)
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("error al ejecutar el comando Graphviz: %v", err)
-	}
-
-	fmt.Println("Imagen de la tabla generada:", outputImage)
-	return nil
+	sb.WriteString("  </TABLE>>];\n")
+	sb.WriteString("}\n")
+	return sb.String(), nil
 }

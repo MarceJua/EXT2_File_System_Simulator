@@ -1,12 +1,15 @@
 mkdisk -size=5 -unit=M -fit=WF -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
 
 fdisk -size=1 -type=P -unit=M -fit=BF -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
-#fdisk -size=2 -type=P -unit=M -fit=WF -name="Particion2" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+fdisk -size=2 -type=P -unit=M -fit=WF -name="Particion2" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
 
 mount -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
 
-mkfs -id=531A
+mkfs -id=671A
 
-rep -id=531A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_mbr.png" -name=mbr
-rep -id=531A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_inode.png" -name=inode
-rep -id=531A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/reoprt_bm_inode.txt" -name=bm_inode
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_mbr" -name=mbr
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_inode" -name=inode
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_bm_inode" -name=bm_inode
+
+rep -id="671A" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_disk" -name="disk"
+rep -id="671A" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_sb" -name="sb"

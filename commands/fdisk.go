@@ -194,7 +194,13 @@ func createPrimaryPartition(fdisk *FDISK, sizeBytes int) error {
 
 	partition.CreatePartition(start, sizeBytes, fdisk.typ, fdisk.fit, fdisk.name)
 	mbr.Mbr_partitions[idx] = *partition
-	return mbr.Serialize(fdisk.path)
+	if err := mbr.Serialize(fdisk.path); err != nil {
+		return fmt.Errorf("error serializando el MBR: %v", err)
+	}
+
+	// Mensaje de éxito
+	fmt.Printf("Partición primaria creada: %s\n", fdisk.name)
+	return nil
 }
 
 func createLogicalPartition(fdisk *FDISK, sizeBytes int) error {

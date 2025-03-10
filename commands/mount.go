@@ -5,10 +5,10 @@ import (
 	"fmt"    // Paquete para formatear cadenas y realizar operaciones de entrada/salida
 	"os"
 	"regexp" // Paquete para trabajar con expresiones regulares, útil para encontrar y manipular patrones en cadenas
+	"strconv"
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/stores"
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/structures" // Paquete que contiene las estructuras de datos necesarias para el manejo de discos y particiones
-	utils "github.com/MarceJua/MIA_1S2025_P1_202010367/utils"
 
 	// Paquete para convertir cadenas a otros tipos de datos, como enteros
 	"strings" // Paquete para manipular cadenas, como unir, dividir, y modificar contenido de cadenas
@@ -62,13 +62,23 @@ func ParseMount(tokens []string) (*MOUNT, error) {
 }
 
 func commandMount(mount *MOUNT) error {
-	// Crear una instancia de MBR
 	var mbr structures.MBR
 	if err := mbr.Deserialize(mount.path); err != nil {
 		return fmt.Errorf("error al deserializar MBR: %v", err)
 	}
 
-	// Buscar en primarias/extendidas primero
+	// Contar particiones montadas para este disco
+	correlative := 1
+	for id, path := range stores.MountedPartitions {
+		if path == mount.path {
+			num := id[2:3] // Extraer el correlativo (e.g., "1" de "671A")
+			if n, err := strconv.Atoi(num); err == nil && n >= correlative {
+				correlative = n + 1
+			}
+		}
+	}
+
+	// Buscar en primarias
 	partition, idx := mbr.GetPartitionByName(mount.name)
 	if partition != nil {
 		if partition.Part_status[0] == '1' {
@@ -78,10 +88,7 @@ func commandMount(mount *MOUNT) error {
 			return errors.New("no se pueden montar particiones extendidas")
 		}
 
-		id, correlative, err := generatePartitionID(mount)
-		if err != nil {
-			return fmt.Errorf("error generando ID: %v", err)
-		}
+		id := fmt.Sprintf("%s%dA", stores.Carnet, correlative)
 		if _, exists := stores.MountedPartitions[id]; exists {
 			return errors.New("el ID ya está en uso")
 		}
@@ -93,7 +100,7 @@ func commandMount(mount *MOUNT) error {
 		return mbr.Serialize(mount.path)
 	}
 
-	// Si no está en el MBR, buscar en las lógicas
+	// Buscar en lógicas
 	file, err := os.OpenFile(mount.path, os.O_RDWR, 0644)
 	if err != nil {
 		return fmt.Errorf("error al abrir disco: %v", err)
@@ -126,15 +133,11 @@ func commandMount(mount *MOUNT) error {
 				return errors.New("la partición lógica ya está montada")
 			}
 
-			id, _, err := generatePartitionID(mount)
-			if err != nil {
-				return fmt.Errorf("error generando ID: %v", err)
-			}
+			id := fmt.Sprintf("%s%dA", stores.Carnet, correlative)
 			if _, exists := stores.MountedPartitions[id]; exists {
 				return errors.New("el ID ya está en uso")
 			}
 
-			// Actualizar EBR a montada y asignar Part_id
 			currentEBR.Part_status = [1]byte{'1'}
 			copy(currentEBR.Part_id[:], id)
 			if err := currentEBR.Serialize(file, currentOffset); err != nil {
@@ -155,14 +158,4 @@ func commandMount(mount *MOUNT) error {
 	}
 
 	return errors.New("partición lógica no encontrada")
-}
-
-func generatePartitionID(mount *MOUNT) (string, int, error) {
-	// Asignar una letra a la partición y obtener el índice
-	letter, partitionCorrelative, err := utils.GetLetterAndPartitionCorrelative(mount.path)
-	if err != nil {
-		return "", 0, fmt.Errorf("error obteniendo letra: %v", err)
-	}
-	idPartition := fmt.Sprintf("%s%d%s", stores.Carnet, partitionCorrelative, letter)
-	return idPartition, partitionCorrelative, nil
 }

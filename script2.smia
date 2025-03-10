@@ -1,7 +1,18 @@
 mkdisk -size=10 -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia"
+
+fdisk -size=1 -type=P -unit=M -fit=BF -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia"
+fdisk -size=2 -type=P -unit=M -fit=WF -name="Particion2" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia"
 fdisk -size=2 -type=E -name="Extendida1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia"
 fdisk -size=300 -unit=K -type=L -name="Logica1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia"
 fdisk -size=200 -unit=K -type=L -name="Logica2" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia"
+
 mount -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia" -name="Logica1"
 mount -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia" -name="Logica2"
-mount -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab2.mia" -name="Extendida1"
+
+mkfs -id=671B
+
+rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_mbr" -name="mbr"
+rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_inode" -name="inode"
+rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_bm_inode" -name="bm_inode"
+rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_disk" -name="disk"
+rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_sb" -name="sb"

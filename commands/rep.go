@@ -3,6 +3,9 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -20,73 +23,58 @@ type REP struct {
 
 // ParserRep parsea el comando rep y devuelve una instancia de REP
 func ParseRep(tokens []string) (*REP, error) {
-	cmd := &REP{} // Crea una nueva instancia de REP
-
-	// Unir tokens en una sola cadena y luego dividir por espacios, respetando las comillas
+	cmd := &REP{}
 	args := strings.Join(tokens, " ")
-	// Expresión regular para encontrar los parámetros del comando rep
 	re := regexp.MustCompile(`-id=[^\s]+|-path="[^"]+"|-path=[^\s]+|-name=[^\s]+|-path_file_ls="[^"]+"|-path_file_ls=[^\s]+`)
-	// Encuentra todas las coincidencias de la expresión regular en la cadena de argumentos
 	matches := re.FindAllString(args, -1)
 
-	// Itera sobre cada coincidencia encontrada
 	for _, match := range matches {
-		// Divide cada parte en clave y valor usando "=" como delimitador
 		kv := strings.SplitN(match, "=", 2)
 		if len(kv) != 2 {
 			return nil, fmt.Errorf("formato de parámetro inválido: %s", match)
 		}
-		key, value := strings.ToLower(kv[0]), kv[1]
-
-		// Remove quotes from value if present
-		if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-			value = strings.Trim(value, "\"")
-		}
-
-		// Switch para manejar diferentes parámetros
+		key, value := strings.ToLower(kv[0]), strings.Trim(kv[1], "\"")
 		switch key {
 		case "-id":
-			// Verifica que el id no esté vacío
 			if value == "" {
 				return nil, errors.New("el id no puede estar vacío")
 			}
 			cmd.id = value
 		case "-path":
-			// Verifica que el path no esté vacío
 			if value == "" {
 				return nil, errors.New("el path no puede estar vacío")
 			}
 			cmd.path = value
 		case "-name":
-			// Verifica que el nombre sea uno de los valores permitidos
 			validNames := []string{"mbr", "disk", "inode", "block", "bm_inode", "bm_block", "sb", "file", "ls"}
 			if !contains(validNames, value) {
-				return nil, errors.New("nombre inválido, debe ser uno de los siguientes: mbr, disk, inode, block, bm_inode, bm_block, sb, file, ls")
+				return nil, errors.New("nombre inválido, debe ser: mbr, disk, inode, block, bm_inode, bm_block, sb, file, ls")
 			}
 			cmd.name = value
 		case "-path_file_ls":
+			if value == "" {
+				return nil, errors.New("el path_file_ls no puede estar vacío")
+			}
 			cmd.path_file_ls = value
 		default:
-			// Si el parámetro no es reconocido, devuelve un error
 			return nil, fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
-	// Verifica que los parámetros obligatorios hayan sido proporcionados
 	if cmd.id == "" || cmd.path == "" || cmd.name == "" {
 		return nil, errors.New("faltan parámetros requeridos: -id, -path, -name")
 	}
-
-	// Aquí se puede agregar la lógica para ejecutar el comando rep con los parámetros proporcionados
-	err := commandRep(cmd)
-	if err != nil {
-		fmt.Println("Error:", err)
+	if cmd.name == "ls" && cmd.path_file_ls == "" {
+		return nil, errors.New("falta parámetro -path_file_ls para reporte ls")
 	}
 
-	return cmd, nil // Devuelve el comando REP creado
+	err := commandRep(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return cmd, nil
 }
 
-// Función auxiliar para verificar si un valor está en una lista
 func contains(list []string, value string) bool {
 	for _, v := range list {
 		if v == value {
@@ -96,32 +84,63 @@ func contains(list []string, value string) bool {
 	return false
 }
 
-// Ejemplo de función commandRep (debe ser implementada)
 func commandRep(rep *REP) error {
-	// Obtener la partición montada
 	mountedMbr, mountedSb, mountedDiskPath, err := stores.GetMountedPartitionRep(rep.id)
 	if err != nil {
 		return err
 	}
 
-	// Switch para manejar diferentes tipos de reportes
+	// Generar el reporte según el tipo
+	var dotContent string
 	switch rep.name {
 	case "mbr":
-		err = reports.ReportMBR(mountedMbr, rep.path)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-		}
+		dotContent, err = reports.ReportMBR(mountedMbr)
+	case "disk":
+		dotContent, err = reports.ReportDisk(mountedMbr, mountedDiskPath)
 	case "inode":
-		err = reports.ReportInode(mountedSb, mountedDiskPath, rep.path)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-		}
+		dotContent, err = reports.ReportInode(mountedSb, mountedDiskPath)
+		//	case "block":
+		//		dotContent, err = reports.ReportBlock(mountedSb, mountedDiskPath)
 	case "bm_inode":
-		err = reports.ReportBMInode(mountedSb, mountedDiskPath, rep.path)
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-		}
+		dotContent, err = reports.ReportBMInode(mountedSb, mountedDiskPath)
+		//	case "bm_block":
+		//		dotContent, err = reports.ReportBMBlock(mountedSb, mountedDiskPath)
+	case "sb":
+		dotContent, err = reports.ReportSB(mountedSb)
+		//	case "file":
+		//		dotContent, err = reports.ReportFile(mountedSb, mountedDiskPath)
+		//	case "ls":
+		//		dotContent, err = reports.ReportLS(mountedSb, mountedDiskPath, rep.path_file_ls)
+	default:
+		return fmt.Errorf("reporte no implementado: %s", rep.name)
+	}
+	if err != nil {
+		return fmt.Errorf("error generando reporte %s: %v", rep.name, err)
 	}
 
+	// Escribir archivo DOT
+	dotFile := rep.path + ".dot"
+	err = writeDotFile(dotFile, dotContent)
+	if err != nil {
+		return fmt.Errorf("error escribiendo archivo DOT: %v", err)
+	}
+
+	// Convertir a imagen con Graphviz
+	outputFile := strings.TrimSuffix(rep.path, filepath.Ext(rep.path)) + ".png"
+	err = generateImage(dotFile, outputFile)
+	if err != nil {
+		return fmt.Errorf("error generando imagen: %v", err)
+	}
+
+	fmt.Printf("Reporte %s generado en %s\n", rep.name, outputFile)
 	return nil
+}
+
+func writeDotFile(filename, content string) error {
+	return os.WriteFile(filename, []byte(content), 0644)
+}
+
+func generateImage(dotFile, outputFile string) error {
+	cmd := exec.Command("dot", "-Tpng", dotFile, "-o", outputFile)
+	return cmd.Run()
 }

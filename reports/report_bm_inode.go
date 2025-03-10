@@ -6,66 +6,45 @@ import (
 	"strings"
 
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/structures"
-	utils "github.com/MarceJua/MIA_1S2025_P1_202010367/utils"
 )
 
 // ReportBMInode genera un reporte del bitmap de inodos y lo guarda en la ruta especificada
-func ReportBMInode(superblock *structures.SuperBlock, diskPath string, path string) error {
-	// Crear las carpetas padre si no existen
-	err := utils.CreateParentDirs(path)
-	if err != nil {
-		return err
-	}
-
-	// Abrir el archivo de disco
+func ReportBMInode(sb *structures.SuperBlock, diskPath string) (string, error) {
 	file, err := os.Open(diskPath)
 	if err != nil {
-		return fmt.Errorf("error al abrir el archivo de disco: %v", err)
+		return "", fmt.Errorf("error abriendo disco: %v", err)
 	}
 	defer file.Close()
 
-	// Calcular el número total de inodos
-	totalInodes := superblock.S_inodes_count + superblock.S_free_inodes_count
-
-	// Obtener el contenido del bitmap de inodos
-	var bitmapContent strings.Builder
-
-	for i := int32(0); i < totalInodes; i++ {
-		// Establecer el puntero
-		_, err := file.Seek(int64(superblock.S_bm_inode_start+i), 0)
-		if err != nil {
-			return fmt.Errorf("error al establecer el puntero en el archivo: %v", err)
-		}
-
-		// Leer un byte (carácter '0' o '1')
-		char := make([]byte, 1)
-		_, err = file.Read(char)
-		if err != nil {
-			return fmt.Errorf("error al leer el byte del archivo: %v", err)
-		}
-
-		// Agregar el carácter al contenido del bitmap
-		bitmapContent.WriteByte(char[0])
-
-		// Agregar un carácter de nueva línea cada 20 caracteres (20 inodos)
-		if (i+1)%20 == 0 {
-			bitmapContent.WriteString("\n")
-		}
-	}
-
-	// Crear el archivo TXT
-	txtFile, err := os.Create(path)
+	_, err = file.Seek(int64(sb.S_bm_inode_start), 0)
 	if err != nil {
-		return fmt.Errorf("error al crear el archivo TXT: %v", err)
+		return "", fmt.Errorf("error buscando bitmap de inodos: %v", err)
 	}
-	defer txtFile.Close()
 
-	// Escribir el contenido del bitmap en el archivo TXT
-	_, err = txtFile.WriteString(bitmapContent.String())
+	totalInodes := sb.S_inodes_count + sb.S_free_inodes_count
+	buffer := make([]byte, totalInodes)
+	_, err = file.Read(buffer)
 	if err != nil {
-		return fmt.Errorf("error al escribir en el archivo TXT: %v", err)
+		return "", fmt.Errorf("error leyendo bitmap de inodos: %v", err)
 	}
 
-	fmt.Println("Archivo del bitmap de inodos generado:", path)
-	return nil
+	var sbBuilder strings.Builder
+	sbBuilder.WriteString("digraph G {\n")
+	sbBuilder.WriteString("  node [shape=plaintext]\n")
+	sbBuilder.WriteString("  tbl [label=<<TABLE BORDER=\"1\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n")
+	sbBuilder.WriteString("    <TR><TD><B>Bitmap Inodos</B></TD></TR>\n")
+
+	for i, bit := range buffer {
+		if i%20 == 0 {
+			sbBuilder.WriteString("    <TR>")
+		}
+		sbBuilder.WriteString(fmt.Sprintf("<TD>%c</TD>", bit))
+		if (i+1)%20 == 0 || i == len(buffer)-1 {
+			sbBuilder.WriteString("</TR>\n")
+		}
+	}
+
+	sbBuilder.WriteString("  </TABLE>>];\n")
+	sbBuilder.WriteString("}\n")
+	return sbBuilder.String(), nil
 }
