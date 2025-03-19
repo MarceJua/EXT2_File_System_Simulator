@@ -43,7 +43,7 @@ func (sb *SuperBlock) CreateBitMaps(path string) error {
 	// Crear un buffer de n 'O'
 	buffer = make([]byte, sb.S_free_blocks_count)
 	for i := range buffer {
-		buffer[i] = 'O'
+		buffer[i] = '0'
 	}
 
 	// Escribir el buffer en el archivo
@@ -95,7 +95,7 @@ func (sb *SuperBlock) UpdateBitmapBlock(path string) error {
 	}
 
 	// Escribir el bit en el archivo
-	_, err = file.Write([]byte{'X'})
+	_, err = file.Write([]byte{'1'})
 	if err != nil {
 		return err
 	}
