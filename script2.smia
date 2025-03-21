@@ -11,6 +11,14 @@ mount -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab
 
 mkfs -id=671B
 
+mkdir -path="/home"
+mkdir -path="/home/usac"
+mkdir -path="/home/work"
+mkdir -path="/home/usac/mia"
+
+
+rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_inode" -name="inode"
+
 rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_mbr" -name="mbr"
 rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_inode" -name="inode"
 rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_bm_inode" -name="bm_inode"

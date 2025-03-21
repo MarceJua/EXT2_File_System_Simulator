@@ -1,8 +1,6 @@
 package structures
 
 import (
-	"encoding/binary"
-	"fmt"
 	"strings"
 	"time"
 
@@ -10,7 +8,6 @@ import (
 )
 
 // Crear users.txt en nuestro sistema de archivos
-// Crear users.txt
 func (sb *SuperBlock) CreateUsersFile(path string) error {
 	// ----------- Creamos / -----------
 	// Creamos el inodo raíz
@@ -69,14 +66,6 @@ func (sb *SuperBlock) CreateUsersFile(path string) error {
 	sb.S_blocks_count++
 	sb.S_free_blocks_count--
 	sb.S_first_blo += sb.S_block_size
-
-	// Verificar el inodo raíz
-	fmt.Println("\nInodo Raíz:")
-	rootInode.Print()
-
-	// Verificar el bloque de carpeta raíz
-	fmt.Println("\nBloque de Carpeta Raíz:")
-	rootBlock.Print()
 
 	// ----------- Creamos /users.txt -----------
 	usersText := "1,G,root\n1,U,root,123\n"
@@ -165,30 +154,7 @@ func (sb *SuperBlock) CreateUsersFile(path string) error {
 	sb.S_free_blocks_count--
 	sb.S_first_blo += sb.S_block_size
 
-	// Verificar el inodo raíz
-	fmt.Println("\nInodo Raíz Actualizado:")
-	rootInode.Print()
-
-	// Verificar el bloque de carpeta raíz
-	fmt.Println("\nBloque de Carpeta Raíz Actualizado:")
-	rootBlock.Print()
-
-	// Verificar el inodo users.txt
-	fmt.Println("\nInodo users.txt:")
-	usersInode.Print()
-
-	// Verificar el bloque de users.txt
-	fmt.Println("\nBloque de users.txt:")
-	usersBlock.Print()
-
-	// Serializar el superbloque al final
-	err = sb.Serialize(path, int64(int(sb.S_bm_inode_start)-binary.Size(sb)))
-	if err != nil {
-		return fmt.Errorf("error serializando superbloque: %v", err)
-	}
-
 	return nil
-
 }
 
 // createFolderInInode crea una carpeta en un inodo específico
@@ -333,11 +299,6 @@ func (sb *SuperBlock) createFolderInInode(path string, inodeIndex int32, parents
 				sb.S_free_blocks_count--
 				sb.S_first_blo += sb.S_block_size
 
-				// Serializar el superbloque tras crear la carpeta
-				err = sb.Serialize(path, int64(int(sb.S_bm_inode_start)-binary.Size(sb)))
-				if err != nil {
-					return fmt.Errorf("error serializando superbloque: %v", err)
-				}
 				return nil
 			}
 		}
