@@ -56,12 +56,18 @@ func Analyzer(input string) (interface{}, error) {
 	case "mkdisk":
 		// Llama a la función ParseMkdisk del paquete commands con los argumentos restantes
 		return commands.ParseMkdisk(tokens[1:])
+	case "rmdisk":
+		// Llama a la función ParseRmdisk del paquete commands con los argumentos restantes
+		return commands.ParseRmdisk(tokens[1:])
 	case "fdisk":
 		// Llama a la función CommandFdisk del paquete commands con los argumentos restantes
 		return commands.ParseFdisk(tokens[1:])
 	case "mount":
 		// Llama a la función CommandMount del paquete commands con los argumentos restantes
 		return commands.ParseMount(tokens[1:])
+	case "mounted":
+		// Llama a la función CommandMounted del paquete commands con los argumentos restantes
+		return commands.ParseMounted(tokens[1:])
 	case "mkfs":
 		// Llama a la función CommandMkfs del paquete commands con los argumentos restantes
 		return commands.ParseMkfs(tokens[1:])
