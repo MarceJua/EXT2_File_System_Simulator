@@ -12,12 +12,9 @@ mkdir -path="/home/usac"
 mkdir -path="/home/work"
 mkdir -path="/home/usac/mia"
 
-/home/marcelo-juarez/Downloads/MIA_1S2025_P1_202010367/output
-
-
 rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_mbr" -name=mbr
-rep -id=671A -path="/home/marcelo-juarez/Downloads/MIA_1S2025_P1_202010367/output/report_inode" -name=inode
-rep -id=671A -path="/home/marcelo-juarez/Downloads/MIA_1S2025_P1_202010367/output/report_bm_inode" -name=bm_inode
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_inode" -name=inode
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_bm_inode" -name=bm_inode
 
 rep -id="671A" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_disk" -name="disk"
 rep -id="671A" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_sb" -name="sb"

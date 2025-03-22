@@ -11,6 +11,17 @@ import (
 // Carnet de estudiante
 const Carnet string = "67" // 202010367
 
+// Session representa una sesión activa
+type Session struct {
+	ID       string // ID de la partición
+	Username string // Nombre del usuario
+	UID      string // ID del usuario
+	GID      string // ID del grupo
+}
+
+// CurrentSession almacena la sesión actual
+var CurrentSession Session
+
 // Declaración de variables globales
 var MountedPartitions = make(map[string]string)
 
