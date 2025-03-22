@@ -24,3 +24,15 @@ rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/outpu
 rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_bm_inode" -name="bm_inode"
 rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_disk" -name="disk"
 rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_sb" -name="sb"
+
+
+mkdisk -size=5 -unit=M -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+fdisk -size=1 -type=P -unit=M -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+mount -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
+mkfs -id=671A
+login -user="root" -pass="123" -id="671A"
+mkfile -path="/test.txt" -size=10
+cat -file="/test.txt"
+mkfile -path="/folder/file.txt" -p -cont="Hola, este es un archivo de prueba"
+logout
+mkfile -path="/test2.txt"
