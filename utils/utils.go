@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -126,4 +127,13 @@ func SplitStringIntoChunks(s string) []string {
 		chunks = append(chunks, s[i:end])
 	}
 	return chunks
+}
+
+// StringToInt convierte una cadena a un entero
+func StringToInt(s string) (int, error) {
+	num, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("no se pudo convertir %s a entero: %v", s, err)
+	}
+	return num, nil
 }

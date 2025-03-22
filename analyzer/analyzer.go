@@ -8,10 +8,43 @@ import (
 	commands "github.com/MarceJua/MIA_1S2025_P1_202010367/commands" // Importa el paquete "commands" que contiene las funciones para analizar comandos
 )
 
+// splitCommand divide la entrada respetando cadenas entre comillas
+func splitCommand(input string) []string {
+	var tokens []string
+	var currentToken strings.Builder
+	inQuotes := false
+
+	for i := 0; i < len(input); i++ {
+		char := input[i]
+
+		switch char {
+		case '"':
+			inQuotes = !inQuotes
+			currentToken.WriteByte(char)
+		case ' ':
+			if inQuotes {
+				currentToken.WriteByte(char)
+			} else if currentToken.Len() > 0 {
+				tokens = append(tokens, currentToken.String())
+				currentToken.Reset()
+			}
+		default:
+			currentToken.WriteByte(char)
+		}
+	}
+
+	if currentToken.Len() > 0 {
+		tokens = append(tokens, currentToken.String())
+	}
+
+	return tokens
+}
+
 // Analyzer analiza el comando de entrada y ejecuta la acción correspondiente
 func Analyzer(input string) (interface{}, error) {
 	// Divide la entrada en tokens usando espacios en blanco como delimitadores
-	tokens := strings.Fields(input)
+	//tokens := strings.Fields(input)
+	tokens := splitCommand(input)
 
 	// Si no se proporcionó ningún comando, devuelve un error
 	if len(tokens) == 0 {
@@ -44,6 +77,9 @@ func Analyzer(input string) (interface{}, error) {
 	case "logout":
 		// Llama a la función CommandLogout del paquete commands con los argumentos restantes
 		return commands.ParseLogout(tokens[1:])
+	case "mkfile":
+		// Llama a la función CommandMkfile del paquete commands con los argumentos restantes
+		return commands.ParseMkfile(tokens[1:])
 	default:
 		// Si el comando no es reconocido, devuelve un error
 		return nil, fmt.Errorf("comando desconocido: %s", tokens[0])

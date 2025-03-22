@@ -25,15 +25,16 @@ func main() {
 		input := scanner.Text()
 
 		// Llama a la función Analyzer del paquete analyzer para analizar el comando ingresado
-		_, err := analyzer.Analyzer(input)
+		result, err := analyzer.Analyzer(input)
 		if err != nil {
 			// Si hay un error al analizar el comando, imprime el error y continúa con el siguiente comando
 			fmt.Println("Error:", err)
 			continue
 		}
-
-		// Comentado: Aquí podrías imprimir el comando analizado
-		// fmt.Printf("Parsed Command: %+v\n", cmd)
+		// Imprimir el resultado si no hay error
+		if result != nil {
+			fmt.Println(result)
+		}
 	}
 
 	// Verifica si hubo algún error al leer la entrada
