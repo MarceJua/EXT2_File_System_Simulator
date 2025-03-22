@@ -41,6 +41,9 @@ func Analyzer(input string) (interface{}, error) {
 	case "login":
 		// Llama a la función CommandLogin del paquete commands con los argumentos restantes
 		return commands.ParseLogin(tokens[1:])
+	case "logout":
+		// Llama a la función CommandLogout del paquete commands con los argumentos restantes
+		return commands.ParseLogout(tokens[1:])
 	default:
 		// Si el comando no es reconocido, devuelve un error
 		return nil, fmt.Errorf("comando desconocido: %s", tokens[0])
