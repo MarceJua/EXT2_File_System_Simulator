@@ -80,6 +80,9 @@ func Analyzer(input string) (interface{}, error) {
 	case "mkfile":
 		// Llama a la función CommandMkfile del paquete commands con los argumentos restantes
 		return commands.ParseMkfile(tokens[1:])
+	case "cat":
+		// Llama a la función CommandCat del paquete commands con los argumentos restantes
+		return commands.ParseCat(tokens[1:])
 	default:
 		// Si el comando no es reconocido, devuelve un error
 		return nil, fmt.Errorf("comando desconocido: %s", tokens[0])

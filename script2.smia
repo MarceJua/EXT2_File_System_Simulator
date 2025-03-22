@@ -26,13 +26,20 @@ rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/outpu
 rep -id="671B" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_sb" -name="sb"
 
 
+
+
 mkdisk -size=5 -unit=M -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
 fdisk -size=1 -type=P -unit=M -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
 mount -name="Particion1" -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/disks/DiscoLab.mia"
 mkfs -id=671A
 login -user="root" -pass="123" -id="671A"
 mkfile -path="/test.txt" -size=10
-cat -file="/test.txt"
-mkfile -path="/folder/file.txt" -p -cont="Hola, este es un archivo de prueba"
+mkfile -path="/file.txt" -cont="Hola, este es un archivo"
+mkfile -path="/folder/subfolder/newfile.txt" -r -size=15
+mkfile -path="/folder2/file.txt" -r
+
+cat -file1="/test.txt"
+cat -file1="/file.txt" -file2="/folder/subfolder/newfile.txt"
+cat -file1="/folder2/file.txt"
+
 logout
-mkfile -path="/test2.txt"
