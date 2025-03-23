@@ -92,6 +92,12 @@ func Analyzer(input string) (interface{}, error) {
 	case "rmgrp":
 		// Llama a la función CommandRmgrp del paquete commands con los argumentos restantes
 		return commands.ParseRmgrp(tokens[1:])
+	case "mkusr":
+		// Llama a la función CommandMkusr del paquete commands con los argumentos restantes
+		return commands.ParseMkusr(tokens[1:])
+	case "rmusr":
+		// Llama a la función CommandRmusr del paquete commands con los argumentos restantes
+		return commands.ParseRmusr(tokens[1:])
 	case "cat":
 		// Llama a la función CommandCat del paquete commands con los argumentos restantes
 		return commands.ParseCat(tokens[1:])

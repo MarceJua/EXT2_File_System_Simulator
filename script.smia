@@ -29,3 +29,10 @@ mkfs -id=671A
 login -user=root -pass=123 -id=671A
 mkgrp -name=usuarios
 cat -file1=/users.txt
+mkgrp -name=admins
+rmgrp -name=usuarios
+cat -file1=/users.txt
+mkusr -user=user1 -pass=pass123 -grp=admins
+cat -file1=/users.txt
+rmusr -user=user1
+cat -file1=/users.txt
