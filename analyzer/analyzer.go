@@ -83,9 +83,15 @@ func Analyzer(input string) (interface{}, error) {
 	case "logout":
 		// Llama a la función CommandLogout del paquete commands con los argumentos restantes
 		return commands.ParseLogout(tokens[1:])
+	case "mkgrp":
+		// Llama a la función CommandMkgrp del paquete commands con los argumentos restantes
+		return commands.ParseMkgrp(tokens[1:])
 	case "mkfile":
 		// Llama a la función CommandMkfile del paquete commands con los argumentos restantes
 		return commands.ParseMkfile(tokens[1:])
+	case "rmgrp":
+		// Llama a la función CommandRmgrp del paquete commands con los argumentos restantes
+		return commands.ParseRmgrp(tokens[1:])
 	case "cat":
 		// Llama a la función CommandCat del paquete commands con los argumentos restantes
 		return commands.ParseCat(tokens[1:])
