@@ -107,3 +107,4 @@ mkfile -path="/folder2/file.txt" -r
 # Generar el reporte bm_block
 rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_bm_block" -name=bm_block
 rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_block" -name=block
+rep -id=671A -path="/home/marcelo-juarez/Desktop/MIA_1S2025_P1_202010367/output/report_tree" -name=tree
