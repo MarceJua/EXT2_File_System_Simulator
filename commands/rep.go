@@ -101,12 +101,12 @@ func commandRep(rep *REP) error {
 		dotContent, err = reports.ReportDisk(mountedMbr, mountedDiskPath)
 	case "inode":
 		dotContent, err = reports.ReportInode(mountedSb, mountedDiskPath)
-		//	case "block":
-		//		dotContent, err = reports.ReportBlock(mountedSb, mountedDiskPath)
+	case "block":
+		dotContent, err = reports.ReportBlock(mountedSb, mountedDiskPath)
 	case "bm_inode":
 		dotContent, err = reports.ReportBMInode(mountedSb, mountedDiskPath)
-		//	case "bm_block":
-		//		dotContent, err = reports.ReportBMBlock(mountedSb, mountedDiskPath)
+	case "bm_block":
+		dotContent, err = reports.ReportBMBlock(mountedSb, mountedDiskPath)
 	case "sb":
 		dotContent, err = reports.ReportSB(mountedSb)
 		//	case "file":
