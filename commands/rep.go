@@ -46,9 +46,9 @@ func ParseRep(tokens []string) (*REP, error) {
 			}
 			cmd.path = value
 		case "-name":
-			validNames := []string{"mbr", "disk", "inode", "block", "bm_inode", "bm_block", "sb", "file", "ls"}
+			validNames := []string{"mbr", "ebr", "disk", "inode", "block", "bm_inode", "bm_block", "sb", "file", "ls"}
 			if !contains(validNames, value) {
-				return nil, errors.New("nombre inválido, debe ser: mbr, disk, inode, block, bm_inode, bm_block, sb, file, ls")
+				return nil, errors.New("nombre inválido, debe ser: mbr, ebr, disk, inode, block, bm_inode, bm_block, sb, file, ls")
 			}
 			cmd.name = value
 		case "-path_file_ls":
@@ -95,6 +95,8 @@ func commandRep(rep *REP) error {
 	switch rep.name {
 	case "mbr":
 		dotContent, err = reports.ReportMBR(mountedMbr)
+	case "ebr":
+		dotContent, err = reports.ReportEBR(mountedMbr, mountedDiskPath)
 	case "disk":
 		dotContent, err = reports.ReportDisk(mountedMbr, mountedDiskPath)
 	case "inode":
