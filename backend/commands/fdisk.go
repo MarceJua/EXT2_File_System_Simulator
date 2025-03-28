@@ -2,11 +2,11 @@ package commands
 
 import (
 	"encoding/binary"
-	"errors"  // Paquete para manejar errores y crear nuevos errores con mensajes personalizados
-	"fmt"     // Paquete para formatear cadenas y realizar operaciones de entrada/salida
-	"os"      // Paquete para trabajar con expresiones regulares, útil para encontrar y manipular patrones en cadenas
-	"strconv" // Paquete para convertir cadenas a otros tipos de datos, como enteros
-	"strings" // Paquete para manipular cadenas, como unir, dividir, y modificar contenido de cadenas
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
 
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/structures"
 	utils "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/utils"
@@ -15,20 +15,14 @@ import (
 // FDISK estructura que representa el comando fdisk con sus parámetros
 type FDISK struct {
 	size int    // Tamaño de la partición
-	unit string // Unidad de medida del tamaño (K o M)
+	unit string // Unidad de medida del tamaño (B, K o M)
 	fit  string // Tipo de ajuste (BF, FF, WF)
 	path string // Ruta del archivo del disco
 	typ  string // Tipo de partición (P, E, L)
 	name string // Nombre de la partición
 }
 
-/*
-	fdisk -size=1 -type=L -unit=M -fit=BF -name="Particion3" -path="/home/keviin/University/PRACTICAS/MIA_LAB_S2_2024/CLASEEXTRA/disks/Disco1.mia"
-	fdisk -size=300 -path=/home/Disco1.mia -name=Particion1
-	fdisk -type=E -path=/home/Disco2.mia -Unit=K -name=Particion2 -size=300
-*/
-
-// CommandFdisk parsea el comando fdisk y devuelve una instancia de FDISK
+// ParseFdisk parsea el comando fdisk y devuelve una instancia de FDISK
 func ParseFdisk(tokens []string) (string, error) {
 	cmd := &FDISK{}
 
@@ -50,8 +44,8 @@ func ParseFdisk(tokens []string) (string, error) {
 			cmd.size = size
 		case "-unit":
 			value = strings.ToUpper(value)
-			if value != "K" && value != "M" {
-				return "", errors.New("la unidad debe ser K o M")
+			if value != "B" && value != "K" && value != "M" {
+				return "", errors.New("la unidad debe ser B, K o M")
 			}
 			cmd.unit = value
 		case "-fit":
@@ -94,7 +88,7 @@ func ParseFdisk(tokens []string) (string, error) {
 
 	// Establecer valores por defecto
 	if cmd.unit == "" {
-		cmd.unit = "M"
+		cmd.unit = "K" // Cambiado de "M" a "K" según especificaciones
 	}
 	if cmd.fit == "" {
 		cmd.fit = "WF"
@@ -149,7 +143,7 @@ func createPrimaryPartition(fdisk *FDISK, sizeBytes int) error {
 		return fmt.Errorf("error deserializando el MBR: %v", err)
 	}
 
-	// Contar particiones primarias/extendidas
+	// Contar particiones primarias/extendidas activas
 	count := 0
 	for _, p := range mbr.Mbr_partitions {
 		if p.Part_status[0] != 'N' {
@@ -162,14 +156,60 @@ func createPrimaryPartition(fdisk *FDISK, sizeBytes int) error {
 
 	partition, start, idx := mbr.GetFirstAvailablePartition()
 	if partition == nil {
-		return errors.New("no hay particiones disponibles")
+		return errors.New("no hay particiones disponibles en el MBR")
 	}
 
-	if sizeBytes > int(mbr.Mbr_size)-start {
+	// Verificar espacio disponible desde el inicio hasta el final del disco
+	availableSpace := int(mbr.Mbr_size) - start
+	if sizeBytes > availableSpace {
 		return errors.New("no hay espacio suficiente en el disco")
 	}
 
 	partition.CreatePartition(start, sizeBytes, fdisk.typ, fdisk.fit, fdisk.name)
+	mbr.Mbr_partitions[idx] = *partition
+	if err := mbr.Serialize(fdisk.path); err != nil {
+		return fmt.Errorf("error serializando el MBR: %v", err)
+	}
+
+	return nil
+}
+
+// createExtendedPartition crea una partición extendida
+func createExtendedPartition(fdisk *FDISK, sizeBytes int) error {
+	var mbr structures.MBR
+	if err := mbr.Deserialize(fdisk.path); err != nil {
+		return fmt.Errorf("error deserializando el MBR: %v", err)
+	}
+
+	// Validar que no exista otra extendida
+	for _, p := range mbr.Mbr_partitions {
+		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
+			return errors.New("ya existe una partición extendida en el disco")
+		}
+	}
+
+	// Contar particiones primarias/extendidas activas
+	count := 0
+	for _, p := range mbr.Mbr_partitions {
+		if p.Part_status[0] != 'N' {
+			count++
+		}
+	}
+	if count >= 4 {
+		return errors.New("máximo de 4 particiones primarias/extendidas alcanzado")
+	}
+
+	partition, start, idx := mbr.GetFirstAvailablePartition()
+	if partition == nil {
+		return errors.New("no hay particiones disponibles en el MBR")
+	}
+
+	availableSpace := int(mbr.Mbr_size) - start
+	if sizeBytes > availableSpace {
+		return errors.New("no hay espacio suficiente en el disco")
+	}
+
+	partition.CreatePartition(start, sizeBytes, "E", fdisk.fit, fdisk.name)
 	mbr.Mbr_partitions[idx] = *partition
 	if err := mbr.Serialize(fdisk.path); err != nil {
 		return fmt.Errorf("error serializando el MBR: %v", err)
@@ -185,6 +225,7 @@ func createLogicalPartition(fdisk *FDISK, sizeBytes int) error {
 		return fmt.Errorf("error al deserializar MBR: %v", err)
 	}
 
+	// Buscar partición extendida
 	var extPartition *structures.Partition
 	for _, p := range mbr.Mbr_partitions {
 		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
@@ -208,7 +249,9 @@ func createLogicalPartition(fdisk *FDISK, sizeBytes int) error {
 	var currentEBR structures.EBR
 	err = currentEBR.Deserialize(file, startExt)
 	if err != nil || currentEBR.Part_status[0] == 0 || currentEBR.Part_status[0] == 'N' {
-		if sizeBytes > availableSpace {
+		// Primer EBR
+		ebrSize := int(binary.Size(structures.EBR{}))
+		if sizeBytes+ebrSize > availableSpace {
 			return errors.New("no hay espacio suficiente en la partición extendida")
 		}
 		currentEBR = structures.EBR{
@@ -225,9 +268,10 @@ func createLogicalPartition(fdisk *FDISK, sizeBytes int) error {
 		return nil
 	}
 
+	// Recorrer EBRs existentes
 	currentOffset := startExt
 	for {
-		if string(currentEBR.Part_name[:]) == fdisk.name {
+		if string(currentEBR.Part_name[:len(fdisk.name)]) == fdisk.name {
 			return fmt.Errorf("el nombre '%s' ya existe en particiones lógicas", fdisk.name)
 		}
 		if currentEBR.Part_next == -1 {
@@ -237,12 +281,14 @@ func createLogicalPartition(fdisk *FDISK, sizeBytes int) error {
 		if err := currentEBR.Deserialize(file, currentOffset); err != nil {
 			return fmt.Errorf("error al leer EBR: %v", err)
 		}
-		availableSpace -= int(currentEBR.Part_size)
 	}
 
-	nextStart := currentOffset + int64(binary.Size(currentEBR))
-	availableSpace -= int(nextStart - startExt)
-	if sizeBytes > availableSpace {
+	// Crear nuevo EBR
+	ebrSize := int(binary.Size(structures.EBR{}))
+	nextStart := currentOffset + int64(currentEBR.Part_size) // Ajustar para empezar después de la partición anterior
+	availableSpace = int(extPartition.Part_size) - int(nextStart-startExt) - ebrSize
+
+	if sizeBytes+ebrSize > availableSpace {
 		return errors.New("no hay espacio suficiente en la partición extendida")
 	}
 
@@ -261,49 +307,6 @@ func createLogicalPartition(fdisk *FDISK, sizeBytes int) error {
 	}
 	if err := newEBR.Serialize(file, int64(newEBR.Part_start)); err != nil {
 		return fmt.Errorf("error al crear nuevo EBR: %v", err)
-	}
-
-	return nil
-}
-
-// createExtendedPartition crea una partición extendida
-func createExtendedPartition(fdisk *FDISK, sizeBytes int) error {
-	var mbr structures.MBR
-	if err := mbr.Deserialize(fdisk.path); err != nil {
-		return fmt.Errorf("error deserializando el MBR: %v", err)
-	}
-
-	// Validar que no exista otra extendida
-	for _, p := range mbr.Mbr_partitions {
-		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
-			return errors.New("ya existe una partición extendida en el disco")
-		}
-	}
-
-	// Contar particiones primarias/extendidas
-	count := 0
-	for _, p := range mbr.Mbr_partitions {
-		if p.Part_status[0] != 'N' {
-			count++
-		}
-	}
-	if count >= 4 {
-		return errors.New("máximo de 4 particiones primarias/extendidas alcanzado")
-	}
-
-	partition, start, idx := mbr.GetFirstAvailablePartition()
-	if partition == nil {
-		return errors.New("no hay particiones disponibles")
-	}
-
-	if sizeBytes > int(mbr.Mbr_size)-start {
-		return errors.New("no hay espacio suficiente en el disco")
-	}
-
-	partition.CreatePartition(start, sizeBytes, "E", fdisk.fit, fdisk.name)
-	mbr.Mbr_partitions[idx] = *partition
-	if err := mbr.Serialize(fdisk.path); err != nil {
-		return fmt.Errorf("error serializando el MBR: %v", err)
 	}
 
 	return nil
