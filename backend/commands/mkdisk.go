@@ -6,10 +6,9 @@ import (
 	"math/rand"     // Paquete para generar números aleatorios
 	"os"            // Paquete para interactuar con el sistema operativo
 	"path/filepath" // Paquete para trabajar con rutas de archivos y directorios
-
-	// Paquete para trabajar con expresiones regulares, útil para encontrar y manipular patrones en cadenas
-	"strconv" // Paquete para convertir cadenas a otros tipos de datos, como enteros
-	"strings" // Paquete para manipular cadenas, como unir, dividir, y modificar contenido de cadenas
+	"regexp"        // Paquete para trabajar con expresiones regulares, útil para encontrar y manipular patrones en cadenas
+	"strconv"       // Paquete para convertir cadenas a otros tipos de datos, como enteros
+	"strings"       // Paquete para manipular cadenas, como unir, dividir, y modificar contenido de cadenas
 	"time"
 
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/structures" // Paquete que contiene las estructuras de datos necesarias para el manejo de discos y particiones
@@ -32,47 +31,64 @@ type MKDISK struct {
 */
 
 func ParseMkdisk(tokens []string) (string, error) {
-	cmd := &MKDISK{}
+	cmd := &MKDISK{} // Crea una nueva instancia de MKDISK
 
-	// Procesar cada token
-	for _, token := range tokens {
-		parts := strings.SplitN(token, "=", 2)
-		if len(parts) != 2 {
-			return "", fmt.Errorf("formato inválido: %s", token)
+	// Unir tokens en una sola cadena y luego dividir por espacios, respetando las comillas
+	args := strings.Join(tokens, " ")
+	// Expresión regular para encontrar los parámetros del comando mkdisk
+	re := regexp.MustCompile(`-size=\d+|-unit=[kKmM]|-fit=[bBfFwW]{2}|-path="[^"]+"|-path=[^\s]+`)
+	// Encuentra todas las coincidencias de la expresión regular en la cadena de argumentos
+	matches := re.FindAllString(args, -1)
+
+	// Itera sobre cada coincidencia encontrada
+	for _, match := range matches {
+		// Divide cada parte en clave y valor usando "=" como delimitador
+		kv := strings.SplitN(match, "=", 2)
+		if len(kv) != 2 {
+			return "", fmt.Errorf("formato de parámetro inválido: %s", match)
 		}
-		key := strings.ToLower(parts[0])
-		value := parts[1]
+		key, value := strings.ToLower(kv[0]), kv[1]
 
+		// Remove quotes from value if present
+		if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+			value = strings.Trim(value, "\"")
+		}
+
+		// Switch para manejar diferentes parámetros
 		switch key {
 		case "-size":
+			// Convierte el valor del tamaño a un entero
 			size, err := strconv.Atoi(value)
 			if err != nil || size <= 0 {
 				return "", errors.New("el tamaño debe ser un número entero positivo")
 			}
 			cmd.size = size
 		case "-unit":
-			value = strings.ToUpper(value)
+			// Verifica que la unidad sea "K" o "M"
 			if value != "K" && value != "M" {
 				return "", errors.New("la unidad debe ser K o M")
 			}
-			cmd.unit = value
+			cmd.unit = strings.ToUpper(value)
 		case "-fit":
+			// Verifica que el ajuste sea "BF", "FF" o "WF"
 			value = strings.ToUpper(value)
 			if value != "BF" && value != "FF" && value != "WF" {
 				return "", errors.New("el ajuste debe ser BF, FF o WF")
 			}
 			cmd.fit = value
 		case "-path":
+			// Verifica que el path no esté vacío
 			if value == "" {
 				return "", errors.New("el path no puede estar vacío")
 			}
 			cmd.path = value
 		default:
+			// Si el parámetro no es reconocido, devuelve un error
 			return "", fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
-	// Validar parámetros requeridos
+	// Verifica que los parámetros -size y -path hayan sido proporcionados
 	if cmd.size == 0 {
 		return "", errors.New("faltan parámetros requeridos: -size")
 	}
@@ -80,21 +96,23 @@ func ParseMkdisk(tokens []string) (string, error) {
 		return "", errors.New("faltan parámetros requeridos: -path")
 	}
 
-	// Establecer valores por defecto
+	// Si no se proporcionó la unidad, se establece por defecto a "M"
 	if cmd.unit == "" {
 		cmd.unit = "M"
 	}
+
+	// Si no se proporcionó el ajuste, se establece por defecto a "FF"
 	if cmd.fit == "" {
 		cmd.fit = "FF"
 	}
 
-	// Ejecutar el comando
+	// Crear el disco con los parámetros proporcionados
 	err := commandMkdisk(cmd)
 	if err != nil {
-		return "", fmt.Errorf("error al crear el disco: %v", err)
+		return "", err
 	}
 
-	return fmt.Sprintf("MKDISK: Disco creado correctamente en %s", cmd.path), nil
+	return fmt.Sprintf("MKDISK: Disco creado exitosamente en %s", cmd.path), nil
 }
 
 func commandMkdisk(mkdisk *MKDISK) error {
@@ -104,11 +122,13 @@ func commandMkdisk(mkdisk *MKDISK) error {
 		return err
 	}
 
-	// Crear el disco y el MBR
+	// Crear el disco con el tamaño proporcionado
 	err = createDisk(mkdisk, sizeBytes)
 	if err != nil {
 		return err
 	}
+
+	// Crear el MBR con el tamaño proporcionado
 	err = createMBR(mkdisk, sizeBytes)
 	if err != nil {
 		return err
@@ -117,7 +137,6 @@ func commandMkdisk(mkdisk *MKDISK) error {
 	return nil
 }
 
-// createDisk crea el archivo del disco con el tamaño especificado
 func createDisk(mkdisk *MKDISK, sizeBytes int) error {
 	// Crear las carpetas necesarias
 	err := os.MkdirAll(filepath.Dir(mkdisk.path), os.ModePerm)
@@ -133,22 +152,22 @@ func createDisk(mkdisk *MKDISK, sizeBytes int) error {
 	defer file.Close()
 
 	// Escribir en el archivo usando un buffer de 1 MB
-	buffer := make([]byte, 1024*1024) // Buffer de 1 MB
+	buffer := make([]byte, 1024*1024) // Crea un buffer de 1 MB
 	for sizeBytes > 0 {
 		writeSize := len(buffer)
 		if sizeBytes < writeSize {
-			writeSize = sizeBytes
+			writeSize = sizeBytes // Ajusta el tamaño de escritura si es menor que el buffer
 		}
 		if _, err := file.Write(buffer[:writeSize]); err != nil {
-			return err
+			return err // Devuelve un error si la escritura falla
 		}
-		sizeBytes -= writeSize
+		sizeBytes -= writeSize // Resta el tamaño escrito del tamaño total
 	}
 	return nil
 }
 
 func createMBR(mkdisk *MKDISK, sizeBytes int) error {
-	// Determinar el tipo de ajuste
+	// Seleccionar el tipo de ajuste
 	var fitByte byte
 	switch mkdisk.fit {
 	case "FF":
@@ -158,10 +177,10 @@ func createMBR(mkdisk *MKDISK, sizeBytes int) error {
 	case "WF":
 		fitByte = 'W'
 	default:
-		return errors.New("tipo de ajuste inválido")
+		return nil
 	}
 
-	// Crear el MBR
+	// Crear el MBR con los valores proporcionados
 	mbr := &structures.MBR{
 		Mbr_size:           int32(sizeBytes),
 		Mbr_creation_date:  float32(time.Now().Unix()),
@@ -176,5 +195,10 @@ func createMBR(mkdisk *MKDISK, sizeBytes int) error {
 	}
 
 	// Serializar el MBR en el archivo
-	return mbr.Serialize(mkdisk.path)
+	err := mbr.Serialize(mkdisk.path)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

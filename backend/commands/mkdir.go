@@ -3,7 +3,6 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
@@ -23,65 +22,48 @@ type MKDIR struct {
 */
 
 func ParseMkdir(tokens []string) (string, error) {
-	cmd := &MKDIR{} // Crea una nueva instancia de MKDIR
+	cmd := &MKDIR{}
 
-	// Unir tokens en una sola cadena y luego dividir por espacios, respetando las comillas
-	args := strings.Join(tokens, " ")
-	// Expresión regular para encontrar los parámetros del comando mkdir
-	re := regexp.MustCompile(`-path=[^\s]+|-p`)
-	// Encuentra todas las coincidencias de la expresión regular en la cadena de argumentos
-	matches := re.FindAllString(args, -1)
+	// Procesar cada token
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		key := strings.ToLower(parts[0])
 
-	// Verificar que todos los tokens fueron reconocidos por la expresión regular
-	if len(matches) != len(tokens) {
-		// Identificar el parámetro inválido
-		for _, token := range tokens {
-			if !re.MatchString(token) {
-				return "", fmt.Errorf("parámetro inválido: %s", token)
-			}
-		}
-	}
-
-	// Itera sobre cada coincidencia encontrada
-	for _, match := range matches {
-		// Divide cada parte en clave y valor usando "=" como delimitador
-		kv := strings.SplitN(match, "=", 2)
-		key := strings.ToLower(kv[0])
-
-		// Switch para manejar diferentes parámetros
 		switch key {
 		case "-path":
-			if len(kv) != 2 {
-				return "", fmt.Errorf("formato de parámetro inválido: %s", match)
+			if len(parts) != 2 {
+				return "", fmt.Errorf("formato inválido para -path: %s", token)
 			}
-			value := kv[1]
-			// Remove quotes from value if present
-			if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-				value = strings.Trim(value, "\"")
+			value := parts[1]
+			if value == "" {
+				return "", errors.New("el path no puede estar vacío")
 			}
 			cmd.path = value
 		case "-p":
+			if len(parts) != 1 {
+				return "", fmt.Errorf("formato inválido para -p: %s", token)
+			}
 			cmd.p = true
 		default:
-			// Si el parámetro no es reconocido, devuelve un error
 			return "", fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
-	// Verifica que el parámetro -path haya sido proporcionado
+	// Validar parámetro requerido
 	if cmd.path == "" {
 		return "", errors.New("faltan parámetros requeridos: -path")
 	}
 
-	// Aquí se puede agregar la lógica para ejecutar el comando mkdir con los parámetros proporcionados
+	// Ejecutar el comando
 	err := commandMkdir(cmd)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error al crear el directorio: %v", err)
 	}
 
-	return fmt.Sprintf("MKDIR: Directorio %s creado correctamente.", cmd.path), nil // Devuelve el comando MKDIR creado
+	return fmt.Sprintf("MKDIR: Directorio %s creado correctamente", cmd.path), nil
 }
 
+// commandMkdir implementa la lógica para crear el directorio
 func commandMkdir(mkdir *MKDIR) error {
 	// Verificar si hay una sesión activa
 	if stores.CurrentSession.ID == "" {
@@ -97,28 +79,21 @@ func commandMkdir(mkdir *MKDIR) error {
 	// Crear el directorio
 	err = createDirectory(mkdir.path, partitionSuperblock, partitionPath, mountedPartition)
 	if err != nil {
-		err = fmt.Errorf("error al crear el directorio: %w", err)
+		return err
 	}
 
-	return err
+	return nil
 }
 
+// createDirectory crea el directorio en la partición
 func createDirectory(dirPath string, sb *structures.SuperBlock, partitionPath string, mountedPartition *structures.Partition) error {
-	fmt.Println("\nCreando directorio:", dirPath)
-
 	parentDirs, destDir := utils.GetParentDirectories(dirPath)
-	fmt.Println("\nDirectorios padres:", parentDirs)
-	fmt.Println("Directorio destino:", destDir)
 
 	// Crear el directorio según el path proporcionado
 	err := sb.CreateFolder(partitionPath, parentDirs, destDir)
 	if err != nil {
 		return fmt.Errorf("error al crear el directorio: %w", err)
 	}
-
-	// Imprimir inodos y bloques
-	sb.PrintInodes(partitionPath)
-	sb.PrintBlocks(partitionPath)
 
 	// Serializar el superbloque
 	err = sb.Serialize(partitionPath, int64(mountedPartition.Part_start))

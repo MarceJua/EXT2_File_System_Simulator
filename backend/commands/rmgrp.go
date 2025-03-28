@@ -13,10 +13,12 @@ import (
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/structures"
 )
 
+// RMGRP estructura que representa el comando rmgrp con sus parámetros
 type RMGRP struct {
 	name string
 }
 
+// ParseRmgrp parsea los tokens del comando rmgrp y ejecuta la acción
 func ParseRmgrp(tokens []string) (string, error) {
 	cmd := &RMGRP{}
 	args := strings.Join(tokens, " ")

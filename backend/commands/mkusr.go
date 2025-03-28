@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -22,25 +21,15 @@ type MKUSR struct {
 
 func ParseMkusr(tokens []string) (string, error) {
 	cmd := &MKUSR{}
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-user=[^\s]+|-pass=[^\s]+|-grp=[^\s]+`)
-	matches := re.FindAllString(args, -1)
 
-	if len(matches) != len(tokens) {
-		for _, token := range tokens {
-			if !re.MatchString(token) {
-				return "", fmt.Errorf("parámetro inválido: %s", token)
-			}
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato de parámetro inválido: %s", token)
 		}
-	}
+		key := strings.ToLower(parts[0])
+		value := strings.Trim(parts[1], "\"")
 
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		key := strings.ToLower(kv[0])
-		if len(kv) != 2 {
-			return "", fmt.Errorf("formato de parámetro inválido: %s", match)
-		}
-		value := strings.Trim(kv[1], "\"")
 		switch key {
 		case "-user":
 			if value == "" || len(value) > 10 {
@@ -57,6 +46,8 @@ func ParseMkusr(tokens []string) (string, error) {
 				return "", errors.New("el grupo debe tener entre 1 y 10 caracteres")
 			}
 			cmd.grp = value
+		default:
+			return "", fmt.Errorf("parámetro inválido: %s", key)
 		}
 	}
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
@@ -20,25 +19,15 @@ type CHGRP struct {
 
 func ParseChgrp(tokens []string) (string, error) {
 	cmd := &CHGRP{}
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-user=[^\s]+|-grp=[^\s]+`)
-	matches := re.FindAllString(args, -1)
 
-	if len(matches) != len(tokens) {
-		for _, token := range tokens {
-			if !re.MatchString(token) {
-				return "", fmt.Errorf("parámetro inválido: %s", token)
-			}
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato de parámetro inválido: %s", token)
 		}
-	}
+		key := strings.ToLower(parts[0])
+		value := strings.Trim(parts[1], "\"")
 
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		key := strings.ToLower(kv[0])
-		if len(kv) != 2 {
-			return "", fmt.Errorf("formato de parámetro inválido: %s", match)
-		}
-		value := strings.Trim(kv[1], "\"")
 		switch key {
 		case "-user":
 			if value == "" || len(value) > 10 {
@@ -50,6 +39,8 @@ func ParseChgrp(tokens []string) (string, error) {
 				return "", errors.New("el grupo debe tener entre 1 y 10 caracteres")
 			}
 			cmd.grp = value
+		default:
+			return "", fmt.Errorf("parámetro inválido: %s", key)
 		}
 	}
 
@@ -107,7 +98,6 @@ func commandChgrp(chgrp *CHGRP) error {
 		content.Write(bytes.Trim(fileBlock.B_content[:], "\x00"))
 	}
 	usersContent := strings.TrimSpace(content.String())
-	fmt.Printf("Contenido antes de CHGRP:\n%s\n", usersContent)
 
 	lines := strings.Split(usersContent, "\n")
 	userFound := false
@@ -139,13 +129,11 @@ func commandChgrp(chgrp *CHGRP) error {
 		parts := strings.Split(line, ",")
 		if len(parts) >= 4 && parts[1] == "U" && parts[3] == chgrp.user && parts[0] != "0" {
 			lines[i] = fmt.Sprintf("%s,U,%s,%s,%s", parts[0], chgrp.grp, parts[3], parts[4])
-			fmt.Printf("Línea actualizada: %s\n", lines[i])
 			break
 		}
 	}
 
 	updatedContent := strings.Join(lines, "\n")
-	fmt.Printf("Contenido después de CHGRP:\n%s\n", updatedContent)
 
 	blockSize := int(partitionSuperblock.S_block_size)
 	contentBytes := []byte(updatedContent)

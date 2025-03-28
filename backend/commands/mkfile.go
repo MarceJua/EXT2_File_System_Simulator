@@ -3,7 +3,6 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,51 +24,42 @@ type MKFILE struct {
 func ParseMkfile(tokens []string) (string, error) {
 	cmd := &MKFILE{}
 
-	// Unir tokens para manejar espacios en parámetros como -cont
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-path=(?:"[^"]+"|[^\s]+)|-size=[0-9]+|-cont=(?:"[^"]+"|[^\s]+)|-r`)
-	matches := re.FindAllString(args, -1)
-
-	// Validar que todos los tokens sean parámetros válidos
-	if len(matches) != len(tokens) {
-		for _, token := range tokens {
-			if !re.MatchString(token) {
-				return "", fmt.Errorf("parámetro inválido: %s", token)
-			}
-		}
-	}
-
-	// Parsear parámetros
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		key := strings.ToLower(kv[0])
+	// Procesar cada token
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		key := strings.ToLower(parts[0])
 
 		switch key {
 		case "-path":
-			if len(kv) != 2 {
-				return "", fmt.Errorf("formato inválido para -path: %s", match)
+			if len(parts) != 2 {
+				return "", fmt.Errorf("formato inválido para -path: %s", token)
 			}
-			value := strings.Trim(kv[1], "\"")
+			value := parts[1]
 			if !strings.HasPrefix(value, "/") {
 				return "", errors.New("la ruta debe ser absoluta (comenzar con /)")
 			}
+			if value == "" {
+				return "", errors.New("el path no puede estar vacío")
+			}
 			cmd.path = value
 		case "-size":
-			if len(kv) != 2 {
-				return "", fmt.Errorf("formato inválido para -size: %s", match)
+			if len(parts) != 2 {
+				return "", fmt.Errorf("formato inválido para -size: %s", token)
 			}
-			size, err := utils.StringToInt(kv[1])
+			size, err := utils.StringToInt(parts[1])
 			if err != nil || size < 0 {
-				return "", fmt.Errorf("tamaño inválido: %s", kv[1])
+				return "", fmt.Errorf("tamaño inválido: %s", parts[1])
 			}
 			cmd.size = size
 		case "-cont":
-			if len(kv) != 2 {
-				return "", fmt.Errorf("formato inválido para -cont: %s", match)
+			if len(parts) != 2 {
+				return "", fmt.Errorf("formato inválido para -cont: %s", token)
 			}
-			value := strings.Trim(kv[1], "\"")
-			cmd.cont = value
+			cmd.cont = parts[1]
 		case "-r":
+			if len(parts) != 1 {
+				return "", fmt.Errorf("formato inválido para -r: %s", token)
+			}
 			cmd.r = true
 		default:
 			return "", fmt.Errorf("parámetro desconocido: %s", key)
@@ -84,7 +74,7 @@ func ParseMkfile(tokens []string) (string, error) {
 	// Ejecutar el comando
 	err := commandMkfile(cmd)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error al crear el archivo: %v", err)
 	}
 
 	return fmt.Sprintf("MKFILE: Archivo %s creado correctamente", cmd.path), nil
@@ -105,9 +95,6 @@ func commandMkfile(mkfile *MKFILE) error {
 
 	// Separar directorios padres y nombre del archivo
 	parentDirs, fileName := utils.GetParentDirectories(mkfile.path)
-	fmt.Printf("Creando archivo: %s\n", mkfile.path)
-	fmt.Printf("Directorios padres: %v\n", parentDirs)
-	fmt.Printf("Nombre del archivo: %s\n", fileName)
 
 	// Manejar directorios padres
 	if len(parentDirs) > 0 {
@@ -143,10 +130,6 @@ func commandMkfile(mkfile *MKFILE) error {
 	if err != nil {
 		return fmt.Errorf("error al crear el archivo: %w", err)
 	}
-
-	// Imprimir estado (para depuración)
-	sb.PrintInodes(diskPath)
-	sb.PrintBlocks(diskPath)
 
 	// Serializar superbloque
 	err = sb.Serialize(diskPath, int64(mountedPartition.Part_start))

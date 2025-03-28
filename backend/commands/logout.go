@@ -2,6 +2,7 @@ package commands
 
 import (
 	"errors"
+	"fmt"
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
 )
@@ -12,14 +13,14 @@ type LOGOUT struct{}
 // ParseLogout parsea los tokens del comando logout
 func ParseLogout(tokens []string) (string, error) {
 	// Verificar que no haya parámetros adicionales
-	if len(tokens) > 1 {
-		return "", errors.New("el comando logout no acepta parámetros")
+	if len(tokens) > 0 {
+		return "", fmt.Errorf("el comando logout no acepta parámetros, solo 'logout'")
 	}
 
 	// Ejecutar el comando
 	err := commandLogout()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error al cerrar sesión: %v", err)
 	}
 
 	return "LOGOUT: Sesión cerrada correctamente", nil

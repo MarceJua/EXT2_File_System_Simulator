@@ -3,7 +3,6 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
@@ -21,38 +20,30 @@ type LOGIN struct {
 func ParseLogin(tokens []string) (string, error) {
 	cmd := &LOGIN{}
 
-	// Unir tokens en una sola cadena
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-user=[^\s]+|-pass=[^\s]+|-id=[^\s]+`)
-	matches := re.FindAllString(args, -1)
-
-	// Verificar tokens válidos
-	if len(matches) != len(tokens) {
-		for _, token := range tokens {
-			if !re.MatchString(token) {
-				return "", fmt.Errorf("parámetro inválido: %s", token)
-			}
+	// Procesar cada token
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato inválido: %s", token)
 		}
-	}
-
-	// Parsear parámetros
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		key := strings.ToLower(kv[0])
-		if len(kv) != 2 {
-			return "", fmt.Errorf("formato de parámetro inválido: %s", match)
-		}
-		value := kv[1]
-		if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-			value = strings.Trim(value, "\"")
-		}
+		key := strings.ToLower(parts[0])
+		value := parts[1]
 
 		switch key {
 		case "-user":
+			if value == "" {
+				return "", errors.New("el usuario no puede estar vacío")
+			}
 			cmd.user = value
 		case "-pass":
+			if value == "" {
+				return "", errors.New("la contraseña no puede estar vacía")
+			}
 			cmd.pass = value
 		case "-id":
+			if value == "" {
+				return "", errors.New("el id no puede estar vacío")
+			}
 			cmd.id = value
 		default:
 			return "", fmt.Errorf("parámetro desconocido: %s", key)
@@ -60,14 +51,20 @@ func ParseLogin(tokens []string) (string, error) {
 	}
 
 	// Verificar parámetros requeridos
-	if cmd.user == "" || cmd.pass == "" || cmd.id == "" {
-		return "", errors.New("faltan parámetros requeridos: -user, -pass, -id")
+	if cmd.user == "" {
+		return "", errors.New("faltan parámetros requeridos: -user")
+	}
+	if cmd.pass == "" {
+		return "", errors.New("faltan parámetros requeridos: -pass")
+	}
+	if cmd.id == "" {
+		return "", errors.New("faltan parámetros requeridos: -id")
 	}
 
 	// Ejecutar el comando
 	err := commandLogin(cmd)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error al iniciar sesión: %v", err)
 	}
 
 	return fmt.Sprintf("LOGIN: Sesión iniciada como %s en %s", cmd.user, cmd.id), nil
@@ -103,7 +100,6 @@ func commandLogin(login *LOGIN) error {
 	if blockIndex == -1 {
 		return errors.New("no se encontró contenido en users.txt")
 	}
-	fmt.Printf("I_block[0] de users.txt: %d\n", blockIndex)
 
 	fileBlock := &structures.FileBlock{}
 	err = fileBlock.Deserialize(partitionPath, int64(partitionSuperblock.S_block_start+blockIndex*partitionSuperblock.S_block_size))
@@ -113,7 +109,6 @@ func commandLogin(login *LOGIN) error {
 
 	// Obtener el contenido como string
 	content := strings.Trim(string(fileBlock.B_content[:]), "\x00")
-	fmt.Printf("Contenido de users.txt: %s\n", content)
 
 	// Procesar las líneas de users.txt
 	lines := strings.Split(content, "\n")
@@ -125,7 +120,6 @@ func commandLogin(login *LOGIN) error {
 		if len(parts) < 3 {
 			continue
 		}
-		fmt.Printf("Línea procesada: %v\n", parts)
 
 		// Verificar si es un usuario (formato: ID,U,username,password)
 		if len(parts) == 4 && parts[1] == "U" {
@@ -144,5 +138,5 @@ func commandLogin(login *LOGIN) error {
 		}
 	}
 
-	return fmt.Errorf("usuario o contraseña incorrectos")
+	return errors.New("usuario o contraseña incorrectos")
 }

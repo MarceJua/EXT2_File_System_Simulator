@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -20,46 +19,43 @@ type MKGRP struct {
 
 func ParseMkgrp(tokens []string) (string, error) {
 	cmd := &MKGRP{}
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-name=[^\s]+`)
-	matches := re.FindAllString(args, -1)
 
-	if len(matches) != len(tokens) {
-		for _, token := range tokens {
-			if !re.MatchString(token) {
-				return "", fmt.Errorf("parámetro inválido: %s", token)
-			}
+	// Procesar cada token
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato inválido: %s", token)
 		}
-	}
+		key := strings.ToLower(parts[0])
+		value := parts[1]
 
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		key := strings.ToLower(kv[0])
-		if len(kv) != 2 {
-			return "", fmt.Errorf("formato de parámetro inválido: %s", match)
-		}
-		value := strings.Trim(kv[1], "\"")
 		if key == "-name" {
 			if value == "" || len(value) > 10 {
 				return "", errors.New("el nombre del grupo debe tener entre 1 y 10 caracteres")
 			}
 			cmd.name = value
+		} else {
+			return "", fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
+	// Validar parámetro requerido
 	if cmd.name == "" {
 		return "", errors.New("faltan parámetros requeridos: -name")
 	}
 
+	// Ejecutar el comando
 	err := commandMkgrp(cmd)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error al crear el grupo: %v", err)
 	}
 
 	return fmt.Sprintf("MKGRP: Grupo %s creado exitosamente", cmd.name), nil
 }
 
+// commandMkgrp implementa la lógica para crear el grupo
 func commandMkgrp(mkgrp *MKGRP) error {
+	// Verificar sesión activa y permisos
 	if stores.CurrentSession.ID == "" {
 		return errors.New("no hay sesión activa, inicie sesión primero")
 	}
@@ -67,6 +63,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 		return errors.New("solo el usuario root puede crear grupos")
 	}
 
+	// Obtener la partición montada
 	partitionSuperblock, _, partitionPath, err := stores.GetMountedPartitionSuperblock(stores.CurrentSession.ID)
 	if err != nil {
 		return fmt.Errorf("error al obtener la partición montada: %v", err)
@@ -104,7 +101,7 @@ func commandMkgrp(mkgrp *MKGRP) error {
 	}
 	usersContent := strings.TrimSpace(content.String())
 
-	// Procesar contenido
+	// Procesar contenido para encontrar GID máximo y verificar duplicados
 	lines := strings.Split(usersContent, "\n")
 	maxGID := 0
 	for _, line := range lines {

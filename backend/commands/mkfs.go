@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -26,50 +25,55 @@ type MKFS struct {
    mkfs -id=vd2
 */
 
-func ParseMkfs(tokens []string) (*MKFS, error) {
+func ParseMkfs(tokens []string) (string, error) {
 	cmd := &MKFS{typ: "full", fs: "2fs"}
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-id=[^\s]+|-type=[^\s]+|-fs=[23]fs`)
-	matches := re.FindAllString(args, -1)
 
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		if len(kv) != 2 {
-			return nil, fmt.Errorf("formato de parámetro inválido: %s", match)
+	// Procesar cada token
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato inválido: %s", token)
 		}
-		key, value := strings.ToLower(kv[0]), strings.Trim(kv[1], "\"")
+		key := strings.ToLower(parts[0])
+		value := parts[1]
+
 		switch key {
 		case "-id":
 			if value == "" {
-				return nil, errors.New("el id no puede estar vacío")
+				return "", errors.New("el id no puede estar vacío")
 			}
 			cmd.id = value
 		case "-type":
 			if value != "full" {
-				return nil, errors.New("el tipo debe ser full")
+				return "", errors.New("el tipo debe ser full")
 			}
 			cmd.typ = value
 		case "-fs":
+			value = strings.ToLower(value)
 			if value != "2fs" && value != "3fs" {
-				return nil, errors.New("el fs debe ser 2fs o 3fs")
+				return "", errors.New("el fs debe ser 2fs o 3fs")
 			}
 			cmd.fs = value
 		default:
-			return nil, fmt.Errorf("parámetro desconocido: %s", key)
+			return "", fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
+	// Validar parámetro requerido
 	if cmd.id == "" {
-		return nil, errors.New("faltan parámetros requeridos: -id")
+		return "", errors.New("faltan parámetros requeridos: -id")
 	}
 
+	// Ejecutar el comando
 	err := commandMkfs(cmd)
 	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("error al formatear la partición: %v", err)
 	}
-	return cmd, nil
+
+	return fmt.Sprintf("MKFS: Partición %s formateada con éxito con sistema %s", cmd.id, cmd.fs), nil
 }
 
+// commandMkfs implementa la lógica para formatear la partición
 func commandMkfs(mkfs *MKFS) error {
 	partitionPath, exists := stores.MountedPartitions[mkfs.id]
 	if !exists {
@@ -127,9 +131,6 @@ func commandMkfs(mkfs *MKFS) error {
 			}
 			currentOffset = int64(currentEBR.Part_next)
 		}
-	} else {
-		fmt.Println("\nPartición montada (primaria):")
-		partition.PrintPartition()
 	}
 
 	var sbCheck structures.SuperBlock
@@ -138,11 +139,7 @@ func commandMkfs(mkfs *MKFS) error {
 	}
 
 	n := calculateN(partitionSize)
-	fmt.Println("\nValor de n:", n)
-
 	superBlock := createSuperBlock(startOffset, n, mkfs.fs)
-	fmt.Println("\nSuperBlock:")
-	superBlock.Print()
 
 	if err := superBlock.CreateBitMaps(partitionPath); err != nil {
 		return err
@@ -150,24 +147,21 @@ func commandMkfs(mkfs *MKFS) error {
 	if err := superBlock.CreateUsersFile(partitionPath); err != nil {
 		return err
 	}
-
-	fmt.Println("\nSuperBlock actualizado:")
-	superBlock.Print()
-
 	if err := superBlock.Serialize(partitionPath, startOffset); err != nil {
 		return err
 	}
 
-	fmt.Printf("Partición %s formateada con éxito\n", mkfs.id)
 	return nil
 }
 
+// calculateN calcula el número de estructuras posibles en la partición
 func calculateN(size int32) int32 {
 	numerator := int(size) - binary.Size(structures.SuperBlock{})
 	denominator := 4 + binary.Size(structures.Inode{}) + 3*binary.Size(structures.FileBlock{})
 	return int32(math.Floor(float64(numerator) / float64(denominator)))
 }
 
+// createSuperBlock crea el superbloque para el sistema de archivos
 func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBlock {
 	bm_inode_start := int32(startOffset) + int32(binary.Size(structures.SuperBlock{}))
 	bm_block_start := bm_inode_start + n

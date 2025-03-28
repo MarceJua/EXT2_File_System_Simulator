@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 
 	stores "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/stores"
@@ -19,30 +18,22 @@ type RMUSR struct {
 
 func ParseRmusr(tokens []string) (string, error) {
 	cmd := &RMUSR{}
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-user=[^\s]+`)
-	matches := re.FindAllString(args, -1)
 
-	if len(matches) != len(tokens) {
-		for _, token := range tokens {
-			if !re.MatchString(token) {
-				return "", fmt.Errorf("parámetro inválido: %s", token)
-			}
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato de parámetro inválido: %s", token)
 		}
-	}
+		key := strings.ToLower(parts[0])
+		value := strings.Trim(parts[1], "\"")
 
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		key := strings.ToLower(kv[0])
-		if len(kv) != 2 {
-			return "", fmt.Errorf("formato de parámetro inválido: %s", match)
-		}
-		value := strings.Trim(kv[1], "\"")
 		if key == "-user" {
 			if value == "" || len(value) > 10 {
 				return "", errors.New("el usuario debe tener entre 1 y 10 caracteres")
 			}
 			cmd.user = value
+		} else {
+			return "", fmt.Errorf("parámetro inválido: %s", key)
 		}
 	}
 

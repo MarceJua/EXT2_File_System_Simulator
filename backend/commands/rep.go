@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	reports "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/reports"
@@ -22,57 +21,57 @@ type REP struct {
 }
 
 // ParserRep parsea el comando rep y devuelve una instancia de REP
-func ParseRep(tokens []string) (*REP, error) {
+func ParseRep(tokens []string) (string, error) {
 	cmd := &REP{}
-	args := strings.Join(tokens, " ")
-	re := regexp.MustCompile(`-id=[^\s]+|-path="[^"]+"|-path=[^\s]+|-name=[^\s]+|-path_file_ls="[^"]+"|-path_file_ls=[^\s]+`)
-	matches := re.FindAllString(args, -1)
 
-	for _, match := range matches {
-		kv := strings.SplitN(match, "=", 2)
-		if len(kv) != 2 {
-			return nil, fmt.Errorf("formato de parámetro inválido: %s", match)
+	for _, token := range tokens {
+		parts := strings.SplitN(token, "=", 2)
+		if len(parts) != 2 {
+			return "", fmt.Errorf("formato de parámetro inválido: %s", token)
 		}
-		key, value := strings.ToLower(kv[0]), strings.Trim(kv[1], "\"")
+		key := strings.ToLower(parts[0])
+		value := strings.Trim(parts[1], "\"")
+
 		switch key {
 		case "-id":
 			if value == "" {
-				return nil, errors.New("el id no puede estar vacío")
+				return "", errors.New("el id no puede estar vacío")
 			}
 			cmd.id = value
 		case "-path":
 			if value == "" {
-				return nil, errors.New("el path no puede estar vacío")
+				return "", errors.New("el path no puede estar vacío")
 			}
 			cmd.path = value
 		case "-name":
 			validNames := []string{"mbr", "ebr", "disk", "inode", "block", "bm_inode", "bm_block", "tree", "sb", "file", "ls"}
 			if !contains(validNames, value) {
-				return nil, errors.New("nombre inválido, debe ser: mbr, ebr, disk, inode, block, bm_inode, bm_block, tree, sb, file, ls")
+				return "", errors.New("nombre inválido, debe ser: mbr, ebr, disk, inode, block, bm_inode, bm_block, tree, sb, file, ls")
 			}
 			cmd.name = value
 		case "-path_file_ls":
 			if value == "" {
-				return nil, errors.New("el path_file_ls no puede estar vacío")
+				return "", errors.New("el path_file_ls no puede estar vacío")
 			}
 			cmd.path_file_ls = value
 		default:
-			return nil, fmt.Errorf("parámetro desconocido: %s", key)
+			return "", fmt.Errorf("parámetro desconocido: %s", key)
 		}
 	}
 
 	if cmd.id == "" || cmd.path == "" || cmd.name == "" {
-		return nil, errors.New("faltan parámetros requeridos: -id, -path, -name")
+		return "", errors.New("faltan parámetros requeridos: -id, -path, -name")
 	}
 	if cmd.name == "ls" && cmd.path_file_ls == "" {
-		return nil, errors.New("falta parámetro -path_file_ls para reporte ls")
+		return "", errors.New("falta parámetro -path_file_ls para reporte ls")
 	}
 
 	err := commandRep(cmd)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return cmd, nil
+
+	return fmt.Sprintf("REP: Reporte %s generado en %s", cmd.name, strings.TrimSuffix(cmd.path, filepath.Ext(cmd.path))+".png"), nil
 }
 
 func contains(list []string, value string) bool {
@@ -136,7 +135,6 @@ func commandRep(rep *REP) error {
 		return fmt.Errorf("error generando imagen: %v", err)
 	}
 
-	fmt.Printf("Reporte %s generado en %s\n", rep.name, outputFile)
 	return nil
 }
 
