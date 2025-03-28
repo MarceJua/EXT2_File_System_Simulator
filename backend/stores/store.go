@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/structures"
 )
@@ -31,70 +32,59 @@ func GetMountedPartitionRep(id string) (*structures.MBR, *structures.SuperBlock,
 		return nil, nil, "", errors.New("partición no montada")
 	}
 
+	var mbr structures.MBR
+	if err := mbr.Deserialize(path); err != nil {
+		return nil, nil, "", fmt.Errorf("error deserializando MBR: %v", err)
+	}
+
+	// Verificar si el ID corresponde a una partición primaria
+	for _, p := range mbr.Mbr_partitions {
+		if strings.Trim(string(p.Part_id[:]), "\x00") == id {
+			// No necesitamos SuperBlock para mbr o disk, pero lo mantenemos por compatibilidad
+			return &mbr, nil, path, nil
+		}
+	}
+
+	// Buscar en particiones lógicas si no es primaria
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("error abriendo disco: %v", err)
 	}
 	defer file.Close()
 
-	var mbr structures.MBR
-	if err := mbr.Deserialize(path); err != nil {
-		return nil, nil, "", fmt.Errorf("error deserializando MBR: %v", err)
-	}
-
-	var startOffset int64
+	var extPartition *structures.Partition
 	for _, p := range mbr.Mbr_partitions {
-		if string(p.Part_id[:]) == id {
-			startOffset = int64(p.Part_start)
+		if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
+			extPartition = &p
 			break
 		}
 	}
-
-	if startOffset == 0 {
-		var extPartition *structures.Partition
-		for _, p := range mbr.Mbr_partitions {
-			if p.Part_type[0] == 'E' && p.Part_status[0] != 'N' {
-				extPartition = &p
-				break
-			}
-		}
-		if extPartition == nil {
-			return nil, nil, "", errors.New("no hay partición extendida")
-		}
-
-		var currentEBR structures.EBR
-		currentOffset := int64(extPartition.Part_start)
-		fileInfo, err := file.Stat()
-		if err != nil {
-			return nil, nil, "", fmt.Errorf("error obteniendo tamaño del archivo: %v", err)
-		}
-		fileSize := fileInfo.Size()
-
-		for currentOffset < fileSize {
-			if err := currentEBR.Deserialize(file, currentOffset); err != nil {
-				return nil, nil, "", fmt.Errorf("error leyendo EBR en offset %d: %v", currentOffset, err)
-			}
-			currentEBR.Print() // Depuración
-			if string(currentEBR.Part_id[:]) == id {
-				startOffset = int64(currentEBR.Part_start)
-				break
-			}
-			if currentEBR.Part_next == -1 {
-				return nil, nil, "", errors.New("partición lógica no encontrada")
-			}
-			currentOffset = int64(currentEBR.Part_next)
-		}
-		if startOffset == 0 {
-			return nil, nil, "", errors.New("partición lógica no encontrada en EBRs")
-		}
+	if extPartition == nil {
+		return &mbr, nil, path, nil // Devolvemos MBR aunque no haya extendida, para mbr y disk
 	}
 
-	var sb structures.SuperBlock
-	if err := sb.Deserialize(path, startOffset); err != nil {
-		return nil, nil, "", fmt.Errorf("error deserializando superbloque en offset %d: %v", startOffset, err)
+	var currentEBR structures.EBR
+	currentOffset := int64(extPartition.Part_start)
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("error obteniendo tamaño del archivo: %v", err)
+	}
+	fileSize := fileInfo.Size()
+
+	for currentOffset < fileSize {
+		if err := currentEBR.Deserialize(file, currentOffset); err != nil {
+			return nil, nil, "", fmt.Errorf("error leyendo EBR en offset %d: %v", currentOffset, err)
+		}
+		if strings.Trim(string(currentEBR.Part_id[:]), "\x00") == id {
+			return &mbr, nil, path, nil // Encontrada en lógica
+		}
+		if currentEBR.Part_next == -1 {
+			break
+		}
+		currentOffset = int64(currentEBR.Part_next)
 	}
 
-	return &mbr, &sb, path, nil
+	return &mbr, nil, path, nil // Devolvemos MBR si no es lógica, para compatibilidad
 }
 
 // GetMountedPartitionSuperblock obtiene el SuperBlock de la partición montada con el id especificado

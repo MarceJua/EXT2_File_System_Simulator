@@ -154,3 +154,13 @@ func (mbr *MBR) PrintPartitions() {
 		fmt.Printf("  ID: %s\n", partID)
 	}
 }
+
+func (mbr *MBR) GetPartitionByNameFromID(id string) (*Partition, int) {
+	for i, partition := range mbr.Mbr_partitions {
+		partitionID := strings.Trim(string(partition.Part_id[:]), "\x00 ")
+		if strings.EqualFold(partitionID, id) {
+			return &partition, i
+		}
+	}
+	return nil, -1
+}
