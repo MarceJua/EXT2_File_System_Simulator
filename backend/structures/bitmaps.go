@@ -1,53 +1,51 @@
 package structures
 
 import (
-	"encoding/binary"
+	"fmt"
 	"os"
 )
 
 // CreateBitMaps crea los Bitmaps de inodos y bloques en el archivo especificado
-func (sb *SuperBlock) CreateBitMaps(path string) error {
-	// Escribir Bitmaps
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
+func (sb *SuperBlock) CreateBitMaps(file *os.File) error {
 	// Bitmap de inodos
-	// Mover el puntero del archivo a la posición especificada
-	_, err = file.Seek(int64(sb.S_bm_inode_start), 0)
+	_, err := file.Seek(int64(sb.S_bm_inode_start), 0)
 	if err != nil {
 		return err
 	}
 
-	// Crear un buffer de n '0'
-	buffer := make([]byte, sb.S_free_inodes_count)
+	totalInodes := sb.S_inodes_count
+	buffer := make([]byte, totalInodes)
 	for i := range buffer {
 		buffer[i] = '0'
 	}
+	// Marcar algunos inodos como ocupados (ejemplo: root y users.txt)
+	if totalInodes >= 2 {
+		buffer[0] = '1' // Inodo 0 ocupado (root)
+		buffer[1] = '1' // Inodo 1 ocupado (users.txt)
+	}
 
-	// Escribir el buffer en el archivo
-	err = binary.Write(file, binary.LittleEndian, buffer)
+	_, err = file.Write(buffer)
 	if err != nil {
 		return err
 	}
 
 	// Bitmap de bloques
-	// Mover el puntero del archivo a la posición especificada
 	_, err = file.Seek(int64(sb.S_bm_block_start), 0)
 	if err != nil {
 		return err
 	}
 
-	// Crear un buffer de n 'O'
-	buffer = make([]byte, sb.S_free_blocks_count)
+	totalBlocks := sb.S_blocks_count
+	buffer = make([]byte, totalBlocks)
 	for i := range buffer {
 		buffer[i] = '0'
 	}
+	if totalBlocks >= 2 {
+		buffer[0] = '1'
+		buffer[1] = '1'
+	}
 
-	// Escribir el buffer en el archivo
-	err = binary.Write(file, binary.LittleEndian, buffer)
+	_, err = file.Write(buffer)
 	if err != nil {
 		return err
 	}
@@ -55,22 +53,23 @@ func (sb *SuperBlock) CreateBitMaps(path string) error {
 	return nil
 }
 
-// Actualizar Bitmap de inodos
-func (sb *SuperBlock) UpdateBitmapInode(path string) error {
-	// Abrir el archivo
+// UpdateBitmapInode actualiza un inodo específico en el bitmap
+func (sb *SuperBlock) UpdateBitmapInode(path string, inodeIndex int32) error {
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	// Mover el puntero del archivo a la posición del bitmap de inodos
-	_, err = file.Seek(int64(sb.S_bm_inode_start)+int64(sb.S_inodes_count), 0)
+	if inodeIndex >= sb.S_inodes_count {
+		return fmt.Errorf("índice de inodo fuera de rango: %d", inodeIndex)
+	}
+
+	_, err = file.Seek(int64(sb.S_bm_inode_start)+int64(inodeIndex), 0)
 	if err != nil {
 		return err
 	}
 
-	// Escribir el bit en el archivo
 	_, err = file.Write([]byte{'1'})
 	if err != nil {
 		return err
@@ -79,22 +78,23 @@ func (sb *SuperBlock) UpdateBitmapInode(path string) error {
 	return nil
 }
 
-// Actualizar Bitmap de bloques
-func (sb *SuperBlock) UpdateBitmapBlock(path string) error {
-	// Abrir el archivo
+// UpdateBitmapBlock (similar ajuste)
+func (sb *SuperBlock) UpdateBitmapBlock(path string, blockIndex int32) error {
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	// Mover el puntero del archivo a la posición del bitmap de bloques
-	_, err = file.Seek(int64(sb.S_bm_block_start)+int64(sb.S_blocks_count), 0)
+	if blockIndex >= sb.S_blocks_count {
+		return fmt.Errorf("índice de bloque fuera de rango: %d", blockIndex)
+	}
+
+	_, err = file.Seek(int64(sb.S_bm_block_start)+int64(blockIndex), 0)
 	if err != nil {
 		return err
 	}
 
-	// Escribir el bit en el archivo
 	_, err = file.Write([]byte{'1'})
 	if err != nil {
 		return err

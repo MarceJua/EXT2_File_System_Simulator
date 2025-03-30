@@ -223,6 +223,16 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 				return fmt.Errorf("error convirtiendo GID: %v", err)
 			}
 
+			// Encontrar inodo y bloque libres
+			newInodeIndex, err := sb.FindFreeInode(diskPath)
+			if err != nil {
+				return fmt.Errorf("error al encontrar inodo libre: %v", err)
+			}
+			newBlockIndex, err := sb.FindFreeBlock(diskPath)
+			if err != nil {
+				return fmt.Errorf("error al encontrar bloque libre: %v", err)
+			}
+
 			// Crear nuevo inodo para la carpeta
 			newInode := &structures.Inode{
 				I_uid:   int32(uid),
@@ -234,7 +244,7 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 				I_type:  [1]byte{'0'},           // Carpeta
 				I_perm:  [3]byte{'6', '6', '4'}, // Permisos 664
 			}
-			newInodeIndex := sb.S_inodes_count
+			newInode.I_block[0] = newBlockIndex
 
 			// Crear bloque inicial para la carpeta (con . y ..)
 			newBlock := &structures.FolderBlock{
@@ -245,8 +255,6 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 					{B_name: [12]byte{'-'}, B_inodo: -1},
 				},
 			}
-			newBlockIndex := sb.S_blocks_count
-			newInode.I_block[0] = newBlockIndex
 
 			// Buscar espacio en el inodo padre o asignar un nuevo bloque
 			var parentBlockIndex int32 = -1
@@ -270,6 +278,11 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 						break
 					}
 				} else if j < 12 { // Usar bloques directos
+					newParentBlockNum, err := sb.FindFreeBlock(diskPath)
+					if err != nil {
+						return fmt.Errorf("error al encontrar bloque libre para padre: %v", err)
+					}
+					inode.I_block[j] = newParentBlockNum
 					parentBlock = &structures.FolderBlock{
 						B_content: [4]structures.FolderContent{
 							{B_name: [12]byte{}, B_inodo: newInodeIndex},
@@ -278,19 +291,17 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 							{B_name: [12]byte{'-'}, B_inodo: -1},
 						},
 					}
-					inode.I_block[j] = sb.S_blocks_count
-					parentBlockIndex = sb.S_blocks_count
+					parentBlockIndex = newParentBlockNum
 					copy(parentBlock.B_content[0].B_name[:], dir)
 
 					err = parentBlock.Serialize(diskPath, int64(sb.S_block_start+parentBlockIndex*sb.S_block_size))
 					if err != nil {
 						return err
 					}
-					err = sb.UpdateBitmapBlock(diskPath)
+					err = sb.UpdateBitmapBlock(diskPath, parentBlockIndex)
 					if err != nil {
 						return err
 					}
-					sb.S_blocks_count++
 					sb.S_free_blocks_count--
 					break
 				}
@@ -304,11 +315,10 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 			if err != nil {
 				return err
 			}
-			err = sb.UpdateBitmapBlock(diskPath)
+			err = sb.UpdateBitmapBlock(diskPath, newBlockIndex)
 			if err != nil {
 				return err
 			}
-			sb.S_blocks_count++
 			sb.S_free_blocks_count--
 
 			// Serializar nuevo inodo
@@ -316,11 +326,10 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 			if err != nil {
 				return err
 			}
-			err = sb.UpdateBitmapInode(diskPath)
+			err = sb.UpdateBitmapInode(diskPath, newInodeIndex)
 			if err != nil {
 				return err
 			}
-			sb.S_inodes_count++
 			sb.S_free_inodes_count--
 
 			// Actualizar bloque padre
@@ -343,7 +352,8 @@ func createParentFolders(sb *structures.SuperBlock, diskPath string, parentDirs 
 
 // createFile crea un archivo en el sistema de archivos
 func createFile(sb *structures.SuperBlock, diskPath string, parentDirs []string, fileName string, content string) error {
-	currentInode := int32(0)
+	// Navegar hasta el directorio padre
+	currentInode := int32(0) // Raíz
 	for _, dir := range parentDirs {
 		inode := &structures.Inode{}
 		err := inode.Deserialize(diskPath, int64(sb.S_inode_start+currentInode*sb.S_inode_size))
@@ -377,12 +387,14 @@ func createFile(sb *structures.SuperBlock, diskPath string, parentDirs []string,
 		}
 	}
 
+	// Cargar el inodo padre
 	inode := &structures.Inode{}
 	err := inode.Deserialize(diskPath, int64(sb.S_inode_start+currentInode*sb.S_inode_size))
 	if err != nil {
 		return err
 	}
 
+	// Encontrar o crear un bloque para el directorio padre
 	var targetBlockIndex int32 = -1
 	var blockToUpdate *structures.FolderBlock
 	var contentIndex int
@@ -405,21 +417,23 @@ func createFile(sb *structures.SuperBlock, diskPath string, parentDirs []string,
 				break
 			}
 		} else if i < 12 {
-			newBlock := &structures.FolderBlock{}
-			inode.I_block[i] = sb.S_blocks_count
-			targetBlockIndex = sb.S_blocks_count
-			blockToUpdate = newBlock
+			newBlockNum, err := sb.FindFreeBlock(diskPath)
+			if err != nil {
+				return fmt.Errorf("error al encontrar bloque libre: %v", err)
+			}
+			inode.I_block[i] = newBlockNum
+			blockToUpdate = &structures.FolderBlock{}
+			targetBlockIndex = newBlockNum
 			contentIndex = 0
 
-			err = newBlock.Serialize(diskPath, int64(sb.S_block_start+targetBlockIndex*sb.S_block_size))
+			err = blockToUpdate.Serialize(diskPath, int64(sb.S_block_start+targetBlockIndex*sb.S_block_size))
 			if err != nil {
 				return err
 			}
-			err = sb.UpdateBitmapBlock(diskPath)
+			err = sb.UpdateBitmapBlock(diskPath, targetBlockIndex)
 			if err != nil {
 				return err
 			}
-			sb.S_blocks_count++
 			sb.S_free_blocks_count--
 			err = inode.Serialize(diskPath, int64(sb.S_inode_start+currentInode*sb.S_inode_size))
 			if err != nil {
@@ -432,6 +446,7 @@ func createFile(sb *structures.SuperBlock, diskPath string, parentDirs []string,
 		return errors.New("no hay espacio en el directorio padre para crear " + fileName)
 	}
 
+	// Crear el inodo del archivo
 	uid, err := strconv.Atoi(stores.CurrentSession.UID)
 	if err != nil {
 		return fmt.Errorf("error convirtiendo UID: %v", err)
@@ -439,6 +454,10 @@ func createFile(sb *structures.SuperBlock, diskPath string, parentDirs []string,
 	gid, err := strconv.Atoi(stores.CurrentSession.GID)
 	if err != nil {
 		return fmt.Errorf("error convirtiendo GID: %v", err)
+	}
+	newInodeNum, err := sb.FindFreeInode(diskPath)
+	if err != nil {
+		return fmt.Errorf("error al encontrar inodo libre: %v", err)
 	}
 	fileInode := &structures.Inode{
 		I_uid:   int32(uid),
@@ -450,62 +469,66 @@ func createFile(sb *structures.SuperBlock, diskPath string, parentDirs []string,
 		I_type:  [1]byte{'1'},
 		I_perm:  [3]byte{'6', '6', '4'},
 	}
-	fileInodeIndex := sb.S_inodes_count
 
-	blockToUpdate.B_content[contentIndex].B_inodo = fileInodeIndex
+	// Vincular el archivo al bloque padre
+	blockToUpdate.B_content[contentIndex].B_inodo = newInodeNum
 	copy(blockToUpdate.B_content[contentIndex].B_name[:], fileName)
 	err = blockToUpdate.Serialize(diskPath, int64(sb.S_block_start+targetBlockIndex*sb.S_block_size))
 	if err != nil {
 		return err
 	}
 
-	// Si no hay contenido, aún asignamos un bloque vacío
+	// Asignar bloques para el contenido
 	if content == "" {
-		fileBlock := &structures.FileBlock{
-			B_content: [64]byte{}, // Bloque vacío
+		newBlockNum, err := sb.FindFreeBlock(diskPath)
+		if err != nil {
+			return fmt.Errorf("error al encontrar bloque libre: %v", err)
 		}
-		fileInode.I_block[0] = sb.S_blocks_count
-		err = fileBlock.Serialize(diskPath, int64(sb.S_block_start+sb.S_blocks_count*sb.S_block_size))
+		fileInode.I_block[0] = newBlockNum
+		fileBlock := &structures.FileBlock{B_content: [64]byte{}}
+		err = fileBlock.Serialize(diskPath, int64(sb.S_block_start+newBlockNum*sb.S_block_size))
 		if err != nil {
 			return err
 		}
-		err = sb.UpdateBitmapBlock(diskPath)
+		err = sb.UpdateBitmapBlock(diskPath, newBlockNum)
 		if err != nil {
 			return err
 		}
-		sb.S_blocks_count++
 		sb.S_free_blocks_count--
-	} else if content != "" {
+	} else {
 		chunks := utils.SplitStringIntoChunks(content)
 		if len(chunks) > 12 {
 			return fmt.Errorf("contenido demasiado grande, máximo 12 bloques directos")
 		}
 		for i, chunk := range chunks {
-			fileBlock := &structures.FileBlock{}
+			newBlockNum, err := sb.FindFreeBlock(diskPath)
+			if err != nil {
+				return fmt.Errorf("error al encontrar bloque libre: %v", err)
+			}
+			fileInode.I_block[i] = newBlockNum
+			fileBlock := &structures.FileBlock{B_content: [64]byte{}}
 			copy(fileBlock.B_content[:], chunk)
-			fileInode.I_block[i] = sb.S_blocks_count
-			err = fileBlock.Serialize(diskPath, int64(sb.S_block_start+sb.S_blocks_count*sb.S_block_size))
+			err = fileBlock.Serialize(diskPath, int64(sb.S_block_start+newBlockNum*sb.S_block_size))
 			if err != nil {
 				return err
 			}
-			err = sb.UpdateBitmapBlock(diskPath)
+			err = sb.UpdateBitmapBlock(diskPath, newBlockNum)
 			if err != nil {
 				return err
 			}
-			sb.S_blocks_count++
 			sb.S_free_blocks_count--
 		}
 	}
 
-	err = fileInode.Serialize(diskPath, int64(sb.S_inode_start+fileInodeIndex*sb.S_inode_size))
+	// Serializar el inodo del archivo
+	err = fileInode.Serialize(diskPath, int64(sb.S_inode_start+newInodeNum*sb.S_inode_size))
 	if err != nil {
 		return err
 	}
-	err = sb.UpdateBitmapInode(diskPath)
+	err = sb.UpdateBitmapInode(diskPath, newInodeNum)
 	if err != nil {
 		return err
 	}
-	sb.S_inodes_count++
 	sb.S_free_inodes_count--
 
 	return nil

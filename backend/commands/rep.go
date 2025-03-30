@@ -71,6 +71,10 @@ func ParseRep(tokens []string) (string, error) {
 		return "", err
 	}
 
+	// Ajustar mensaje de salida según el tipo de reporte
+	if cmd.name == "bm_inode" || cmd.name == "bm_block" {
+		return fmt.Sprintf("REP: Reporte %s generado en %s", cmd.name, cmd.path), nil
+	}
 	return fmt.Sprintf("REP: Reporte %s generado en %s", cmd.name, strings.TrimSuffix(cmd.path, filepath.Ext(cmd.path))+".png"), nil
 }
 
@@ -89,7 +93,11 @@ func commandRep(rep *REP) error {
 		return err
 	}
 
-	// Generar el reporte según el tipo
+	requiresSuperblock := []string{"inode", "block", "bm_inode", "bm_block", "tree", "sb", "file", "ls"}
+	if contains(requiresSuperblock, rep.name) && mountedSb == nil {
+		return fmt.Errorf("error interno: superbloque no cargado para la partición %s", rep.id)
+	}
+
 	var dotContent string
 	switch rep.name {
 	case "mbr":
@@ -103,17 +111,25 @@ func commandRep(rep *REP) error {
 	case "block":
 		dotContent, err = reports.ReportBlock(mountedSb, mountedDiskPath)
 	case "bm_inode":
-		dotContent, err = reports.ReportBMInode(mountedSb, mountedDiskPath)
+		err = reports.ReportBMInode(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			return fmt.Errorf("error generando reporte bm_inode: %v", err)
+		}
+		return nil
 	case "bm_block":
-		dotContent, err = reports.ReportBMBlock(mountedSb, mountedDiskPath)
+		err = reports.ReportBMBlock(mountedSb, mountedDiskPath, rep.path)
+		if err != nil {
+			return fmt.Errorf("error generando reporte bm_block: %v", err)
+		}
+		return nil
 	case "tree":
 		dotContent, err = reports.ReportTree(mountedSb, mountedDiskPath)
 	case "sb":
 		dotContent, err = reports.ReportSB(mountedSb)
-		//	case "file":
-		//		dotContent, err = reports.ReportFile(mountedSb, mountedDiskPath)
-		//	case "ls":
-		//		dotContent, err = reports.ReportLS(mountedSb, mountedDiskPath, rep.path_file_ls)
+	// case "file":
+	// 	dotContent, err = reports.ReportFile(mountedSb, mountedDiskPath)
+	// case "ls":
+	// 	dotContent, err = reports.ReportLS(mountedSb, mountedDiskPath, rep.path_file_ls)
 	default:
 		return fmt.Errorf("reporte no implementado: %s", rep.name)
 	}
@@ -121,14 +137,13 @@ func commandRep(rep *REP) error {
 		return fmt.Errorf("error generando reporte %s: %v", rep.name, err)
 	}
 
-	// Escribir archivo DOT
+	// Para reportes gráficos, generar .dot y .png
 	dotFile := rep.path + ".dot"
 	err = writeDotFile(dotFile, dotContent)
 	if err != nil {
 		return fmt.Errorf("error escribiendo archivo DOT: %v", err)
 	}
 
-	// Convertir a imagen con Graphviz
 	outputFile := strings.TrimSuffix(rep.path, filepath.Ext(rep.path)) + ".png"
 	err = generateImage(dotFile, outputFile)
 	if err != nil {

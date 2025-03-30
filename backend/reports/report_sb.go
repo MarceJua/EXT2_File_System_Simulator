@@ -10,6 +10,18 @@ import (
 
 func ReportSB(sb *structures.SuperBlock) (string, error) {
 	var sbBuilder strings.Builder
+
+	// Formatear tiempos correctamente
+	mtime := "No establecido"
+	if sb.S_mtime != 0 {
+		mtime = time.Unix(int64(sb.S_mtime), 0).Format(time.RFC3339)
+	}
+
+	umtime := "No establecido"
+	if sb.S_umtime != 0 {
+		umtime = time.Unix(int64(sb.S_umtime), 0).Format(time.RFC3339)
+	}
+
 	sbBuilder.WriteString("digraph G {\n")
 	sbBuilder.WriteString("  node [shape=plaintext]\n")
 	sbBuilder.WriteString("  tbl [label=<<TABLE BORDER=\"0\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n")
@@ -19,8 +31,8 @@ func ReportSB(sb *structures.SuperBlock) (string, error) {
 	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_blocks_count</TD><TD>%d</TD></TR>\n", sb.S_blocks_count))
 	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_free_inodes_count</TD><TD>%d</TD></TR>\n", sb.S_free_inodes_count))
 	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_free_blocks_count</TD><TD>%d</TD></TR>\n", sb.S_free_blocks_count))
-	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_mtime</TD><TD>%s</TD></TR>\n", time.Unix(int64(sb.S_mtime), 0).Format(time.RFC3339)))
-	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_umtime</TD><TD>%s</TD></TR>\n", time.Unix(int64(sb.S_umtime), 0).Format(time.RFC3339)))
+	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_mtime</TD><TD>%s</TD></TR>\n", mtime))
+	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_umtime</TD><TD>%s</TD></TR>\n", umtime))
 	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_mnt_count</TD><TD>%d</TD></TR>\n", sb.S_mnt_count))
 	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_magic</TD><TD>%d</TD></TR>\n", sb.S_magic))
 	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_inode_size</TD><TD>%d</TD></TR>\n", sb.S_inode_size))
@@ -33,5 +45,6 @@ func ReportSB(sb *structures.SuperBlock) (string, error) {
 	sbBuilder.WriteString(fmt.Sprintf("    <TR><TD>S_block_start</TD><TD>%d</TD></TR>\n", sb.S_block_start))
 	sbBuilder.WriteString("  </TABLE>>];\n")
 	sbBuilder.WriteString("}\n")
+
 	return sbBuilder.String(), nil
 }

@@ -19,69 +19,75 @@ func ReportTree(sb *structures.SuperBlock, diskPath string) (string, error) {
 	sbBuilder.WriteString("digraph Tree {\n")
 	sbBuilder.WriteString("  node [shape=box]\n")
 
-	inodeSize := int(sb.S_inode_size) // 88 bytes
-	blockSize := int(sb.S_block_size) // 64 bytes
-
-	// Mapa para evitar duplicados
+	inodeSize := int(sb.S_inode_size)
+	blockSize := int(sb.S_block_size)
 	processedInodes := make(map[int32]bool)
 
-	// Función recursiva para construir el árbol
-	var buildTree func(inodoNum int32, parentName string) error
-	buildTree = func(inodoNum int32, parentName string) error {
+	var buildTree func(inodoNum int32, parentPath string) error
+	buildTree = func(inodoNum int32, parentPath string) error {
 		if processedInodes[inodoNum] {
-			return nil // Evitar ciclos o duplicados
+			return nil
 		}
 		processedInodes[inodoNum] = true
 
-		// Leer el inodo
 		inode := &structures.Inode{}
 		err := inode.Deserialize(diskPath, int64(sb.S_inode_start+(inodoNum*int32(inodeSize))))
 		if err != nil {
 			return fmt.Errorf("error deserializando inodo %d: %v", inodoNum, err)
 		}
 
-		// Procesar el primer bloque directo (I_block[0])
-		blockNum := inode.I_block[0]
-		if blockNum == -1 {
-			return nil // Sin bloque asignado
+		currentPath := "\"/\""
+		if parentPath != "" {
+			currentPath = fmt.Sprintf("\"%s\"", parentPath)
 		}
-		blockOffset := int64(sb.S_block_start + (blockNum * int32(blockSize)))
 
 		if inode.I_type[0] == '0' { // Carpeta
-			folderBlock := &structures.FolderBlock{}
-			err = folderBlock.Deserialize(diskPath, blockOffset)
-			if err != nil {
-				return fmt.Errorf("error deserializando bloque carpeta %d: %v", blockNum, err)
-			}
+			for _, blockNum := range inode.I_block[:12] { // Procesar todos los bloques directos
+				if blockNum == -1 {
+					break
+				}
+				folderBlock := &structures.FolderBlock{}
+				err = folderBlock.Deserialize(diskPath, int64(sb.S_block_start+(blockNum*int32(blockSize))))
+				if err != nil {
+					return fmt.Errorf("error deserializando bloque carpeta %d: %v", blockNum, err)
+				}
 
-			// Nombre del nodo actual (raíz es "/")
-			currentName := "\"/\""
-			if parentName != "" {
-				currentName = parentName // Usar el nombre asignado por el padre
-			}
-
-			// Procesar cada entrada en el FolderBlock
-			for _, content := range folderBlock.B_content {
-				name := strings.TrimRight(string(content.B_name[:]), "\x00")
-				childInodo := content.B_inodo
-				if name != "" && childInodo != -1 && name != "." && name != ".." {
-					// Nombre del hijo
-					childName := fmt.Sprintf("\"%s\"", name)
-					// Conectar carpeta con su contenido
-					sbBuilder.WriteString(fmt.Sprintf("  %s -> %s\n", currentName, childName))
-					// Recursivamente procesar el inodo hijo
-					err = buildTree(childInodo, childName)
-					if err != nil {
-						return err
+				for _, content := range folderBlock.B_content {
+					name := strings.TrimRight(string(content.B_name[:]), "\x00")
+					childInodo := content.B_inodo
+					if name != "" && childInodo != -1 && name != "." && name != ".." {
+						childPath := fmt.Sprintf("%s/%s", strings.Trim(parentPath, "\""), name)
+						if parentPath == "" {
+							childPath = "/" + name
+						}
+						childName := fmt.Sprintf("\"%s\"", childPath)
+						sbBuilder.WriteString(fmt.Sprintf("  %s -> %s\n", currentPath, childName))
+						err = buildTree(childInodo, childPath)
+						if err != nil {
+							return err
+						}
 					}
 				}
 			}
+		} else if inode.I_type[0] == '1' { // Archivo
+			for i, blockNum := range inode.I_block[:12] {
+				if blockNum == -1 {
+					break
+				}
+				fileBlock := &structures.FileBlock{}
+				err = fileBlock.Deserialize(diskPath, int64(sb.S_block_start+(blockNum*int32(blockSize))))
+				if err != nil {
+					return fmt.Errorf("error deserializando bloque archivo %d: %v", blockNum, err)
+				}
+				content := strings.TrimRight(string(fileBlock.B_content[:]), "\x00")
+				if content != "" && i == 0 { // Solo conectar el primer bloque como nodo archivo
+					sbBuilder.WriteString(fmt.Sprintf("  %s -> %s\n", currentPath, currentPath)) // Conectar al padre
+				}
+			}
 		}
-		// Archivos no tienen hijos, solo se conectan desde el padre
 		return nil
 	}
 
-	// Comenzar desde el inodo raíz (0)
 	err = buildTree(0, "")
 	if err != nil {
 		return "", err

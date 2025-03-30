@@ -3,8 +3,10 @@ package structures
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -188,22 +190,282 @@ func (sb *SuperBlock) PrintBlocks(path string) error {
 
 // CreateFolder crea una carpeta en el sistema de archivos
 func (sb *SuperBlock) CreateFolder(path string, parentsDir []string, destDir string) error {
-	var err error
-	if len(parentsDir) == 0 {
-		err = sb.createFolderInInode(path, 0, parentsDir, destDir)
-	} else {
-		for i := int32(0); i < sb.S_inodes_count; i++ {
-			err = sb.createFolderInInode(path, i, parentsDir, destDir)
+	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return fmt.Errorf("error al abrir archivo: %v", err)
+	}
+	defer file.Close()
+
+	// Empezar desde el inodo raíz (0)
+	currentInode := &Inode{}
+	err = currentInode.Deserialize(path, int64(sb.S_inode_start))
+	if err != nil {
+		return fmt.Errorf("error al leer inodo raíz: %v", err)
+	}
+	currentInodeNum := int32(0) // Raíz siempre es 0
+
+	// Navegar o crear directorios padres
+	for _, dir := range parentsDir {
+		if dir == "" {
+			continue
+		}
+		found := false
+		for _, blockNum := range currentInode.I_block[:12] {
+			if blockNum == -1 {
+				break
+			}
+			folderBlock := &FolderBlock{}
+			err = folderBlock.Deserialize(path, int64(sb.S_block_start+blockNum*sb.S_block_size))
 			if err != nil {
+				return fmt.Errorf("error al leer bloque %d: %v", blockNum, err)
+			}
+			for _, content := range folderBlock.B_content {
+				name := strings.Trim(string(content.B_name[:]), "\x00")
+				if name == dir {
+					currentInodeNum = content.B_inodo
+					err = currentInode.Deserialize(path, int64(sb.S_inode_start+content.B_inodo*sb.S_inode_size))
+					if err != nil {
+						return fmt.Errorf("error al leer inodo %d: %v", content.B_inodo, err)
+					}
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			// Crear nuevo directorio padre
+			newInodeNum, err := sb.FindFreeInode(path)
+			if err != nil {
+				return fmt.Errorf("error al encontrar inodo libre: %v", err)
+			}
+			newBlockNum, err := sb.FindFreeBlock(path)
+			if err != nil {
+				return fmt.Errorf("error al encontrar bloque libre: %v", err)
+			}
+
+			newInode := &Inode{
+				I_uid:   1, // UID de root
+				I_gid:   1, // GID de root
+				I_size:  0,
+				I_atime: float32(time.Now().Unix()),
+				I_ctime: float32(time.Now().Unix()),
+				I_mtime: float32(time.Now().Unix()),
+				I_block: [15]int32{newBlockNum, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+				I_type:  [1]byte{'0'}, // Carpeta
+				I_perm:  [3]byte{'7', '7', '7'},
+			}
+			err = newInode.Serialize(path, int64(sb.S_inode_start+newInodeNum*sb.S_inode_size))
+			if err != nil {
+				return fmt.Errorf("error al serializar nuevo inodo %d: %v", newInodeNum, err)
+			}
+			err = sb.UpdateBitmapInode(path, newInodeNum)
+			if err != nil {
+				return err
+			}
+			sb.S_free_inodes_count--
+
+			newFolderBlock := &FolderBlock{
+				B_content: [4]FolderContent{
+					{B_name: ToByte12("."), B_inodo: newInodeNum},
+					{B_name: ToByte12(".."), B_inodo: currentInodeNum},
+					{B_name: ToByte12("-"), B_inodo: -1},
+					{B_name: ToByte12("-"), B_inodo: -1},
+				},
+			}
+			err = newFolderBlock.Serialize(path, int64(sb.S_block_start+newBlockNum*sb.S_block_size))
+			if err != nil {
+				return fmt.Errorf("error al serializar bloque %d: %v", newBlockNum, err)
+			}
+			err = sb.UpdateBitmapBlock(path, newBlockNum)
+			if err != nil {
+				return err
+			}
+			sb.S_free_blocks_count--
+
+			// Vincular al padre
+			for i, blockNum := range currentInode.I_block[:12] {
+				if blockNum == -1 {
+					currentInode.I_block[i] = newBlockNum
+					break
+				}
+				folderBlock := &FolderBlock{}
+				err = folderBlock.Deserialize(path, int64(sb.S_block_start+blockNum*sb.S_block_size))
+				if err != nil {
+					return err
+				}
+				for j, content := range folderBlock.B_content {
+					if content.B_inodo == -1 {
+						folderBlock.B_content[j] = FolderContent{B_name: ToByte12(dir), B_inodo: newInodeNum}
+						err = folderBlock.Serialize(path, int64(sb.S_block_start+blockNum*sb.S_block_size))
+						if err != nil {
+							return err
+						}
+						break
+					}
+				}
+			}
+			err = currentInode.Serialize(path, int64(sb.S_inode_start+currentInodeNum*sb.S_inode_size))
+			if err != nil {
+				return fmt.Errorf("error al serializar inodo padre %d: %v", currentInodeNum, err)
+			}
+			currentInodeNum = newInodeNum
+			err = currentInode.Deserialize(path, int64(sb.S_inode_start+currentInodeNum*sb.S_inode_size))
+			if err != nil {
+				return fmt.Errorf("error al leer nuevo inodo %d: %v", currentInodeNum, err)
+			}
+		}
+	}
+
+	// Crear el directorio final
+	newInodeNum, err := sb.FindFreeInode(path)
+	if err != nil {
+		return fmt.Errorf("error al encontrar inodo libre para %s: %v", destDir, err)
+	}
+	newBlockNum, err := sb.FindFreeBlock(path)
+	if err != nil {
+		return fmt.Errorf("error al encontrar bloque libre para %s: %v", destDir, err)
+	}
+
+	newInode := &Inode{
+		I_uid:   1,
+		I_gid:   1,
+		I_size:  0,
+		I_atime: float32(time.Now().Unix()),
+		I_ctime: float32(time.Now().Unix()),
+		I_mtime: float32(time.Now().Unix()),
+		I_block: [15]int32{newBlockNum, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1},
+		I_type:  [1]byte{'0'},
+		I_perm:  [3]byte{'7', '7', '7'},
+	}
+	err = newInode.Serialize(path, int64(sb.S_inode_start+newInodeNum*sb.S_inode_size))
+	if err != nil {
+		return fmt.Errorf("error al serializar inodo %d: %v", newInodeNum, err)
+	}
+	err = sb.UpdateBitmapInode(path, newInodeNum)
+	if err != nil {
+		return err
+	}
+	sb.S_free_inodes_count--
+
+	newFolderBlock := &FolderBlock{
+		B_content: [4]FolderContent{
+			{B_name: ToByte12("."), B_inodo: newInodeNum},
+			{B_name: ToByte12(".."), B_inodo: currentInodeNum},
+			{B_name: ToByte12("-"), B_inodo: -1},
+			{B_name: ToByte12("-"), B_inodo: -1},
+		},
+	}
+	err = newFolderBlock.Serialize(path, int64(sb.S_block_start+newBlockNum*sb.S_block_size))
+	if err != nil {
+		return fmt.Errorf("error al serializar bloque %d: %v", newBlockNum, err)
+	}
+	err = sb.UpdateBitmapBlock(path, newBlockNum)
+	if err != nil {
+		return err
+	}
+	sb.S_free_blocks_count--
+
+	// Vincular al padre
+	for i, blockNum := range currentInode.I_block[:12] {
+		if blockNum == -1 {
+			currentInode.I_block[i] = newBlockNum
+			break
+		}
+		folderBlock := &FolderBlock{}
+		err = folderBlock.Deserialize(path, int64(sb.S_block_start+blockNum*sb.S_block_size))
+		if err != nil {
+			return err
+		}
+		for j, content := range folderBlock.B_content {
+			if content.B_inodo == -1 {
+				folderBlock.B_content[j] = FolderContent{B_name: ToByte12(destDir), B_inodo: newInodeNum}
+				err = folderBlock.Serialize(path, int64(sb.S_block_start+blockNum*sb.S_block_size))
+				if err != nil {
+					return err
+				}
 				break
 			}
 		}
 	}
-	if err == nil {
-		// Serializar el superbloque para guardar cambios
-		if err := sb.Serialize(path, int64(int(sb.S_bm_inode_start)-binary.Size(sb))); err != nil {
-			return fmt.Errorf("error serializando superbloque: %v", err)
+	err = currentInode.Serialize(path, int64(sb.S_inode_start+currentInodeNum*sb.S_inode_size))
+	if err != nil {
+		return fmt.Errorf("error al serializar inodo padre %d: %v", currentInodeNum, err)
+	}
+
+	// Serializar el superbloque
+	err = sb.Serialize(path, int64(sb.S_bm_inode_start)-int64(binary.Size(sb)))
+	if err != nil {
+		return fmt.Errorf("error al serializar superbloque: %v", err)
+	}
+
+	return nil
+}
+
+func (sb *SuperBlock) FindFreeInode(path string) (int32, error) {
+	if sb.S_free_inodes_count <= 0 {
+		return -1, errors.New("no hay inodos libres disponibles")
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return -1, err
+	}
+	defer file.Close()
+
+	_, err = file.Seek(int64(sb.S_bm_inode_start), 0)
+	if err != nil {
+		return -1, err
+	}
+
+	bm := make([]byte, sb.S_inodes_count)
+	_, err = file.Read(bm)
+	if err != nil {
+		return -1, err
+	}
+
+	for i := int32(0); i < sb.S_inodes_count; i++ {
+		if bm[i] == '0' {
+			return i, nil
 		}
 	}
-	return err
+	return -1, fmt.Errorf("no se encontraron inodos libres, pero S_free_inodes_count es %d", sb.S_free_inodes_count)
+}
+
+// FindFreeBlock busca un bloque libre en el bitmap de bloques
+func (sb *SuperBlock) FindFreeBlock(path string) (int32, error) {
+	if sb.S_free_blocks_count <= 0 {
+		return -1, errors.New("no hay bloques libres disponibles")
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return -1, err
+	}
+	defer file.Close()
+
+	_, err = file.Seek(int64(sb.S_bm_block_start), 0)
+	if err != nil {
+		return -1, err
+	}
+
+	bm := make([]byte, sb.S_blocks_count)
+	_, err = file.Read(bm)
+	if err != nil {
+		return -1, err
+	}
+
+	for i := int32(0); i < sb.S_blocks_count; i++ {
+		if bm[i] == '0' {
+			return i, nil
+		}
+	}
+	return -1, fmt.Errorf("no se encontraron bloques libres, pero S_free_blocks_count es %d", sb.S_free_blocks_count)
+}
+
+// toByte12 convierte un string a un array de 12 bytes
+func ToByte12(name string) [12]byte {
+	var b [12]byte
+	copy(b[:], name)
+	return b
 }

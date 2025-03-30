@@ -3,47 +3,53 @@ package reports
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	structures "github.com/MarceJua/MIA_1S2025_P1_202010367/backend/structures"
 )
 
-func ReportBMBlock(sb *structures.SuperBlock, diskPath string) (string, error) {
+func ReportBMBlock(sb *structures.SuperBlock, diskPath string, outputPath string) error {
 	file, err := os.Open(diskPath)
 	if err != nil {
-		return "", fmt.Errorf("error abriendo disco: %v", err)
+		return fmt.Errorf("error abriendo disco: %v", err)
 	}
 	defer file.Close()
 
 	_, err = file.Seek(int64(sb.S_bm_block_start), 0)
 	if err != nil {
-		return "", fmt.Errorf("error buscando bitmap de bloques: %v", err)
+		return fmt.Errorf("error buscando bitmap de bloques: %v", err)
 	}
 
-	totalBlocks := sb.S_blocks_count + sb.S_free_blocks_count
-	buffer := make([]byte, totalBlocks)
+	buffer := make([]byte, sb.S_blocks_count)
 	_, err = file.Read(buffer)
 	if err != nil {
-		return "", fmt.Errorf("error leyendo bitmap de bloques: %v", err)
+		return fmt.Errorf("error leyendo bitmap de bloques: %v", err)
 	}
 
-	var sbBuilder strings.Builder
-	sbBuilder.WriteString("digraph G {\n")
-	sbBuilder.WriteString("  node [shape=plaintext]\n")
-	sbBuilder.WriteString("  tbl [label=<<TABLE BORDER=\"1\" CELLBORDER=\"1\" CELLSPACING=\"0\">\n")
-	sbBuilder.WriteString("    <TR><TD><B>Bitmap Bloques</B></TD></TR>\n")
+	// Escribir directamente en el archivo de salida
+	outFile, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("error creando archivo de salida: %v", err)
+	}
+	defer outFile.Close()
 
 	for i, bit := range buffer {
-		if i%20 == 0 {
-			sbBuilder.WriteString("    <TR>")
+		_, err = outFile.Write([]byte{bit})
+		if err != nil {
+			return fmt.Errorf("error escribiendo en archivo: %v", err)
 		}
-		sbBuilder.WriteString(fmt.Sprintf("<TD>%c</TD>", bit))
-		if (i+1)%20 == 0 || i == len(buffer)-1 {
-			sbBuilder.WriteString("</TR>\n")
+		if (i+1)%20 == 0 && i != len(buffer)-1 {
+			_, err = outFile.WriteString("\n")
+			if err != nil {
+				return fmt.Errorf("error escribiendo salto de línea: %v", err)
+			}
+		}
+	}
+	if len(buffer)%20 != 0 {
+		_, err = outFile.WriteString("\n")
+		if err != nil {
+			return fmt.Errorf("error escribiendo salto de línea final: %v", err)
 		}
 	}
 
-	sbBuilder.WriteString("  </TABLE>>];\n")
-	sbBuilder.WriteString("}\n")
-	return sbBuilder.String(), nil
+	return nil
 }

@@ -28,7 +28,6 @@ type MKFS struct {
 func ParseMkfs(tokens []string) (string, error) {
 	cmd := &MKFS{typ: "full", fs: "2fs"}
 
-	// Procesar cada token
 	for _, token := range tokens {
 		parts := strings.SplitN(token, "=", 2)
 		if len(parts) != 2 {
@@ -59,12 +58,10 @@ func ParseMkfs(tokens []string) (string, error) {
 		}
 	}
 
-	// Validar parámetro requerido
 	if cmd.id == "" {
 		return "", errors.New("faltan parámetros requeridos: -id")
 	}
 
-	// Ejecutar el comando
 	err := commandMkfs(cmd)
 	if err != nil {
 		return "", fmt.Errorf("error al formatear la partición: %v", err)
@@ -73,7 +70,6 @@ func ParseMkfs(tokens []string) (string, error) {
 	return fmt.Sprintf("MKFS: Partición %s formateada con éxito con sistema %s", cmd.id, cmd.fs), nil
 }
 
-// commandMkfs implementa la lógica para formatear la partición
 func commandMkfs(mkfs *MKFS) error {
 	partitionPath, exists := stores.MountedPartitions[mkfs.id]
 	if !exists {
@@ -95,7 +91,8 @@ func commandMkfs(mkfs *MKFS) error {
 	var startOffset int64
 	var partitionSize int32
 	for _, p := range mbr.Mbr_partitions {
-		if string(p.Part_id[:]) == mkfs.id {
+		partID := strings.Trim(string(p.Part_id[:]), "\x00")
+		if partID == mkfs.id {
 			partition = &p
 			startOffset = int64(p.Part_start)
 			partitionSize = p.Part_size
@@ -112,7 +109,7 @@ func commandMkfs(mkfs *MKFS) error {
 			}
 		}
 		if extPartition == nil {
-			return errors.New("partición no encontrada (no hay extendida)")
+			return fmt.Errorf("partición %s no encontrada en el disco", mkfs.id)
 		}
 
 		var currentEBR structures.EBR
@@ -121,13 +118,14 @@ func commandMkfs(mkfs *MKFS) error {
 			if err := currentEBR.Deserialize(file, currentOffset); err != nil {
 				return fmt.Errorf("error al leer EBR: %v", err)
 			}
-			if string(currentEBR.Part_id[:]) == mkfs.id {
+			partID := strings.Trim(string(currentEBR.Part_id[:]), "\x00")
+			if partID == mkfs.id {
 				startOffset = int64(currentEBR.Part_start)
 				partitionSize = currentEBR.Part_size
 				break
 			}
 			if currentEBR.Part_next == -1 {
-				return errors.New("partición lógica no encontrada")
+				return fmt.Errorf("partición lógica %s no encontrada", mkfs.id)
 			}
 			currentOffset = int64(currentEBR.Part_next)
 		}
@@ -139,9 +137,11 @@ func commandMkfs(mkfs *MKFS) error {
 	}
 
 	n := calculateN(partitionSize)
+	fmt.Printf("DEBUG: partitionSize=%d, n=%d\n", partitionSize, n)
 	superBlock := createSuperBlock(startOffset, n, mkfs.fs)
 
-	if err := superBlock.CreateBitMaps(partitionPath); err != nil {
+	// Crear bitmaps y users.txt
+	if err := superBlock.CreateBitMaps(file); err != nil {
 		return err
 	}
 	if err := superBlock.CreateUsersFile(partitionPath); err != nil {
@@ -153,15 +153,12 @@ func commandMkfs(mkfs *MKFS) error {
 
 	return nil
 }
-
-// calculateN calcula el número de estructuras posibles en la partición
 func calculateN(size int32) int32 {
 	numerator := int(size) - binary.Size(structures.SuperBlock{})
 	denominator := 4 + binary.Size(structures.Inode{}) + 3*binary.Size(structures.FileBlock{})
 	return int32(math.Floor(float64(numerator) / float64(denominator)))
 }
 
-// createSuperBlock crea el superbloque para el sistema de archivos
 func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBlock {
 	bm_inode_start := int32(startOffset) + int32(binary.Size(structures.SuperBlock{}))
 	bm_block_start := bm_inode_start + n
@@ -170,23 +167,35 @@ func createSuperBlock(startOffset int64, n int32, fs string) *structures.SuperBl
 
 	fsType := int32(2)
 	if fs == "3fs" {
-		fsType = 3 // EXT3 no implementado aún
+		fsType = 3
+	}
+
+	totalInodes := n
+	totalBlocks := 3 * n
+	freeInodes := n - 2 // Raíz y users.txt
+	freeBlocks := 3*n - 2
+
+	if n < 2 {
+		totalInodes = 2
+		totalBlocks = 6
+		freeInodes = 0
+		freeBlocks = 4
 	}
 
 	return &structures.SuperBlock{
 		S_filesystem_type:   fsType,
-		S_inodes_count:      0,
-		S_blocks_count:      0,
-		S_free_inodes_count: n,
-		S_free_blocks_count: n * 3,
+		S_inodes_count:      totalInodes,
+		S_blocks_count:      totalBlocks,
+		S_free_inodes_count: freeInodes,
+		S_free_blocks_count: freeBlocks,
 		S_mtime:             float32(time.Now().Unix()),
 		S_umtime:            float32(time.Now().Unix()),
 		S_mnt_count:         1,
 		S_magic:             0xEF53,
 		S_inode_size:        int32(binary.Size(structures.Inode{})),
 		S_block_size:        int32(binary.Size(structures.FileBlock{})),
-		S_first_ino:         inode_start,
-		S_first_blo:         block_start,
+		S_first_ino:         2, // Próximo inodo libre
+		S_first_blo:         2, // Próximo bloque libre
 		S_bm_inode_start:    bm_inode_start,
 		S_bm_block_start:    bm_block_start,
 		S_inode_start:       inode_start,

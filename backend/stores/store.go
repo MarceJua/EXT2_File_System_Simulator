@@ -37,15 +37,19 @@ func GetMountedPartitionRep(id string) (*structures.MBR, *structures.SuperBlock,
 		return nil, nil, "", fmt.Errorf("error deserializando MBR: %v", err)
 	}
 
-	// Verificar si el ID corresponde a una partición primaria
+	// Buscar partición primaria
 	for _, p := range mbr.Mbr_partitions {
 		if strings.Trim(string(p.Part_id[:]), "\x00") == id {
-			// No necesitamos SuperBlock para mbr o disk, pero lo mantenemos por compatibilidad
-			return &mbr, nil, path, nil
+			var sb structures.SuperBlock
+			err := sb.Deserialize(path, int64(p.Part_start))
+			if err != nil {
+				return &mbr, nil, path, nil // Devolver sin superbloque si falla (para mbr/disk)
+			}
+			return &mbr, &sb, path, nil
 		}
 	}
 
-	// Buscar en particiones lógicas si no es primaria
+	// Buscar en particiones lógicas
 	file, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("error abriendo disco: %v", err)
@@ -60,7 +64,7 @@ func GetMountedPartitionRep(id string) (*structures.MBR, *structures.SuperBlock,
 		}
 	}
 	if extPartition == nil {
-		return &mbr, nil, path, nil // Devolvemos MBR aunque no haya extendida, para mbr y disk
+		return &mbr, nil, path, nil // Sin extendida, devolvemos solo MBR
 	}
 
 	var currentEBR structures.EBR
@@ -76,7 +80,12 @@ func GetMountedPartitionRep(id string) (*structures.MBR, *structures.SuperBlock,
 			return nil, nil, "", fmt.Errorf("error leyendo EBR en offset %d: %v", currentOffset, err)
 		}
 		if strings.Trim(string(currentEBR.Part_id[:]), "\x00") == id {
-			return &mbr, nil, path, nil // Encontrada en lógica
+			var sb structures.SuperBlock
+			err := sb.Deserialize(path, int64(currentEBR.Part_start))
+			if err != nil {
+				return &mbr, nil, path, nil // Sin superbloque si falla
+			}
+			return &mbr, &sb, path, nil
 		}
 		if currentEBR.Part_next == -1 {
 			break
@@ -84,40 +93,28 @@ func GetMountedPartitionRep(id string) (*structures.MBR, *structures.SuperBlock,
 		currentOffset = int64(currentEBR.Part_next)
 	}
 
-	return &mbr, nil, path, nil // Devolvemos MBR si no es lógica, para compatibilidad
+	return &mbr, nil, path, nil // Si no se encuentra, devolvemos solo MBR
 }
 
 // GetMountedPartitionSuperblock obtiene el SuperBlock de la partición montada con el id especificado
 func GetMountedPartitionSuperblock(id string) (*structures.SuperBlock, *structures.Partition, string, error) {
-	// Obtener el path de la partición montada
 	path := MountedPartitions[id]
 	if path == "" {
 		return nil, nil, "", errors.New("la partición no está montada")
 	}
-
-	// Crear una instancia de MBR
 	var mbr structures.MBR
-
-	// Deserializar la estructura MBR desde un archivo binario
 	err := mbr.Deserialize(path)
 	if err != nil {
 		return nil, nil, "", err
 	}
-
-	// Buscar la partición con el id especificado
 	partition, err := mbr.GetPartitionByID(id)
 	if partition == nil {
 		return nil, nil, "", err
 	}
-
-	// Crear una instancia de SuperBlock
 	var sb structures.SuperBlock
-
-	// Deserializar la estructura SuperBlock desde un archivo binario
 	err = sb.Deserialize(path, int64(partition.Part_start))
 	if err != nil {
 		return nil, nil, "", err
 	}
-
 	return &sb, partition, path, nil
 }

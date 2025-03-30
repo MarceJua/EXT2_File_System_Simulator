@@ -2,6 +2,7 @@ package reports
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -10,11 +11,33 @@ import (
 
 // ReportInode genera un reporte de un inodo y lo guarda en la ruta especificada
 func ReportInode(sb *structures.SuperBlock, diskPath string) (string, error) {
+	file, err := os.Open(diskPath)
+	if err != nil {
+		return "", fmt.Errorf("error abriendo disco: %v", err)
+	}
+	defer file.Close()
+
+	// Leer bitmap de inodos para filtrar los ocupados
+	_, err = file.Seek(int64(sb.S_bm_inode_start), 0)
+	if err != nil {
+		return "", fmt.Errorf("error buscando bitmap de inodos: %v", err)
+	}
+	bmInode := make([]byte, sb.S_inodes_count)
+	_, err = file.Read(bmInode)
+	if err != nil {
+		return "", fmt.Errorf("error leyendo bitmap de inodos: %v", err)
+	}
+
 	var sbBuilder strings.Builder
 	sbBuilder.WriteString("digraph G {\n")
 	sbBuilder.WriteString("  node [shape=plaintext]\n")
 
+	var prevInode int32 = -1
 	for i := int32(0); i < sb.S_inodes_count; i++ {
+		if bmInode[i] != '1' { // Solo inodos ocupados
+			continue
+		}
+
 		inode := &structures.Inode{}
 		err := inode.Deserialize(diskPath, int64(sb.S_inode_start+(i*sb.S_inode_size)))
 		if err != nil {
@@ -45,9 +68,14 @@ func ReportInode(sb *structures.SuperBlock, diskPath string) (string, error) {
 		}
 		sbBuilder.WriteString("  </TABLE>>];\n")
 
-		if i < sb.S_inodes_count-1 {
-			sbBuilder.WriteString(fmt.Sprintf("  inode%d -> inode%d;\n", i, i+1))
+		if prevInode != -1 {
+			sbBuilder.WriteString(fmt.Sprintf("  inode%d -> inode%d;\n", prevInode, i))
 		}
+		prevInode = i
+	}
+
+	if prevInode == -1 {
+		sbBuilder.WriteString("  node0 [label=\"No hay inodos usados\"];\n")
 	}
 
 	sbBuilder.WriteString("}\n")

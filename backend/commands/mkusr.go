@@ -82,33 +82,63 @@ func commandMkusr(mkusr *MKUSR) error {
 	}
 	defer file.Close()
 
-	// Leer el inodo de users.txt (inodo 1)
+	// Encontrar el inodo de users.txt desde la raíz
+	rootInode := &structures.Inode{}
+	err = rootInode.Deserialize(partitionPath, int64(partitionSuperblock.S_inode_start))
+	if err != nil {
+		return fmt.Errorf("error al leer inodo raíz: %v", err)
+	}
+	var usersInodeNum int32 = -1
+	for _, blockNum := range rootInode.I_block[:12] {
+		if blockNum == -1 {
+			break
+		}
+		folderBlock := &structures.FolderBlock{}
+		err = folderBlock.Deserialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*partitionSuperblock.S_block_size))
+		if err != nil {
+			return err
+		}
+		for _, content := range folderBlock.B_content {
+			if strings.Trim(string(content.B_name[:]), "\x00") == "users.txt" {
+				usersInodeNum = content.B_inodo
+				break
+			}
+		}
+		if usersInodeNum != -1 {
+			break
+		}
+	}
+	if usersInodeNum == -1 {
+		return errors.New("users.txt no encontrado")
+	}
+
 	usersInode := &structures.Inode{}
-	err = usersInode.Deserialize(partitionPath, int64(partitionSuperblock.S_inode_start+partitionSuperblock.S_inode_size))
+	err = usersInode.Deserialize(partitionPath, int64(partitionSuperblock.S_inode_start+usersInodeNum*partitionSuperblock.S_inode_size))
 	if err != nil {
 		return fmt.Errorf("error al leer el inodo de users.txt: %v", err)
 	}
-
 	if usersInode.I_type[0] != '1' {
 		return errors.New("users.txt no es un archivo válido")
 	}
 
-	// Leer el contenido actual de users.txt
+	// Leer contenido actual
 	var content strings.Builder
-	for _, blockNum := range usersInode.I_block[:12] {
+	for i, blockNum := range usersInode.I_block[:12] {
 		if blockNum == -1 {
 			break
 		}
 		fileBlock := &structures.FileBlock{}
 		err = fileBlock.Deserialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*partitionSuperblock.S_block_size))
 		if err != nil {
-			return fmt.Errorf("error al leer el bloque de users.txt: %v", err)
+			return fmt.Errorf("error al leer el bloque %d de users.txt: %v", blockNum, err)
 		}
 		content.Write(bytes.Trim(fileBlock.B_content[:], "\x00"))
+		fmt.Printf("DEBUG: Bloque %d leído: %s\n", i, strings.Trim(string(fileBlock.B_content[:]), "\x00"))
 	}
 	usersContent := strings.TrimSpace(content.String())
+	fmt.Printf("DEBUG: Contenido actual de users.txt:\n%s\n", usersContent)
 
-	// Validar grupo y usuario
+	// Validar usuario y grupo
 	lines := strings.Split(usersContent, "\n")
 	maxUID := 0
 	grpExists := false
@@ -126,79 +156,110 @@ func commandMkusr(mkusr *MKUSR) error {
 		if parts[1] == "G" && parts[2] == mkusr.grp && parts[0] != "0" {
 			grpExists = true
 		}
-		if parts[1] == "U" {
-			uid, err := strconv.Atoi(parts[0])
-			if err == nil && uid > maxUID {
-				maxUID = uid
-			}
+		if uid, err := strconv.Atoi(parts[0]); err == nil && uid > maxUID {
+			maxUID = uid
 		}
 	}
-
 	if !grpExists {
 		return errors.New("el grupo especificado no existe o está eliminado")
 	}
 
-	// Crear nueva línea
+	// Agregar nuevo usuario
 	newUID := maxUID + 1
 	newLine := fmt.Sprintf("%d,U,%s,%s,%s", newUID, mkusr.grp, mkusr.user, mkusr.pass)
 	updatedContent := usersContent + "\n" + newLine
+	fmt.Printf("DEBUG: Nuevo contenido de users.txt:\n%s\n", updatedContent)
 
-	// Escribir el contenido actualizado
-	blockSize := int(partitionSuperblock.S_block_size) // 64 bytes
+	// Dividir contenido en bloques de 64 bytes
+	blockSize := int(partitionSuperblock.S_block_size)
 	contentBytes := []byte(updatedContent)
 	numBlocksNeeded := (len(contentBytes) + blockSize - 1) / blockSize
-
 	if numBlocksNeeded > 12 {
 		return errors.New("el archivo users.txt excede el límite de bloques directos (12)")
 	}
 
-	for i := 0; i < numBlocksNeeded; i++ {
-		start := i * blockSize
-		end := start + blockSize
-		if end > len(contentBytes) {
-			end = len(contentBytes)
-		}
-		blockContent := contentBytes[start:end]
-
-		var blockNum int32
-		if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
-			blockNum = usersInode.I_block[i] // Reutilizar bloque existente
-		} else {
-			if partitionSuperblock.S_free_blocks_count <= 0 {
-				return errors.New("no hay bloques libres disponibles")
+	// Actualizar bloques
+	for i := 0; i < 12; i++ {
+		if i < numBlocksNeeded {
+			start := i * blockSize
+			end := start + blockSize
+			if end > len(contentBytes) {
+				end = len(contentBytes)
 			}
-			blockNum = partitionSuperblock.S_first_blo
-			partitionSuperblock.S_first_blo++
-			partitionSuperblock.S_free_blocks_count--
-			partitionSuperblock.S_blocks_count++
-			usersInode.I_block[i] = blockNum
+			blockContent := contentBytes[start:end]
+			fmt.Printf("DEBUG: Escribiendo bloque %d: %s\n", i, string(blockContent))
 
-			err = setBitmapBit(partitionPath, int64(partitionSuperblock.S_bm_block_start), int(blockNum), 1)
+			var blockNum int32
+			if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
+				blockNum = usersInode.I_block[i] // Reutilizar bloque existente
+			} else {
+				// Buscar un bloque libre en el bitmap
+				blockNum, err = findFreeBlock(partitionSuperblock, partitionPath)
+				if err != nil {
+					return err
+				}
+				usersInode.I_block[i] = blockNum
+				err = partitionSuperblock.UpdateBitmapBlock(partitionPath, blockNum)
+				if err != nil {
+					return fmt.Errorf("error al actualizar bitmap de bloques: %v", err)
+				}
+				partitionSuperblock.S_free_blocks_count--
+			}
+
+			fileBlock := &structures.FileBlock{B_content: [64]byte{}}
+			copy(fileBlock.B_content[:], blockContent)
+			err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
 			if err != nil {
-				return fmt.Errorf("error al actualizar bitmap de bloques: %v", err)
+				return fmt.Errorf("error al escribir bloque %d: %v", blockNum, err)
 			}
-		}
-
-		fileBlock := &structures.FileBlock{}
-		copy(fileBlock.B_content[:], blockContent)
-		err = fileBlock.Serialize(partitionPath, int64(partitionSuperblock.S_block_start+blockNum*int32(partitionSuperblock.S_block_size)))
-		if err != nil {
-			return fmt.Errorf("error al escribir bloque %d: %v", blockNum, err)
+		} else if i < len(usersInode.I_block) && usersInode.I_block[i] != -1 {
+			// Liberar bloques sobrantes
+			blockNum := usersInode.I_block[i]
+			err = partitionSuperblock.UpdateBitmapBlock(partitionPath, blockNum) // Marcar como libre (esto debería ser '0', revisar bitmaps.go)
+			if err != nil {
+				return fmt.Errorf("error al liberar bloque %d: %v", blockNum, err)
+			}
+			partitionSuperblock.S_free_blocks_count++
+			usersInode.I_block[i] = -1
 		}
 	}
 
-	// Actualizar inodo
 	usersInode.I_size = int32(len(contentBytes))
-	err = usersInode.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start+partitionSuperblock.S_inode_size))
+	err = usersInode.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start+usersInodeNum*partitionSuperblock.S_inode_size))
 	if err != nil {
 		return fmt.Errorf("error al actualizar inodo: %v", err)
 	}
 
-	// Actualizar superbloque
-	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_inode_start-int32(binary.Size(structures.SuperBlock{}))))
+	err = partitionSuperblock.Serialize(partitionPath, int64(partitionSuperblock.S_bm_inode_start)-int64(binary.Size(partitionSuperblock)))
 	if err != nil {
 		return fmt.Errorf("error al actualizar superbloque: %v", err)
 	}
 
 	return nil
+}
+
+func findFreeBlock(sb *structures.SuperBlock, path string) (int32, error) {
+	file, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return -1, err
+	}
+	defer file.Close()
+
+	_, err = file.Seek(int64(sb.S_bm_block_start), 0)
+	if err != nil {
+		return -1, err
+	}
+
+	bm := make([]byte, sb.S_blocks_count)
+	_, err = file.Read(bm)
+	if err != nil {
+		return -1, err
+	}
+
+	for i := int32(0); i < sb.S_blocks_count; i++ {
+		if bm[i] == '0' {
+			return i, nil
+		}
+	}
+	return -1, errors.New("no hay bloques libres disponibles")
 }
