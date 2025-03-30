@@ -62,8 +62,8 @@ func ParseRep(tokens []string) (string, error) {
 	if cmd.id == "" || cmd.path == "" || cmd.name == "" {
 		return "", errors.New("faltan parámetros requeridos: -id, -path, -name")
 	}
-	if cmd.name == "ls" && cmd.path_file_ls == "" {
-		return "", errors.New("falta parámetro -path_file_ls para reporte ls")
+	if (cmd.name == "ls" || cmd.name == "file") && cmd.path_file_ls == "" {
+		return "", errors.New("falta parámetro -path_file_ls para reporte " + cmd.name)
 	}
 
 	err := commandRep(cmd)
@@ -73,6 +73,9 @@ func ParseRep(tokens []string) (string, error) {
 
 	// Ajustar mensaje de salida según el tipo de reporte
 	if cmd.name == "bm_inode" || cmd.name == "bm_block" {
+		return fmt.Sprintf("REP: Reporte %s generado en %s", cmd.name, cmd.path), nil
+	}
+	if cmd.name == "file" {
 		return fmt.Sprintf("REP: Reporte %s generado en %s", cmd.name, cmd.path), nil
 	}
 	return fmt.Sprintf("REP: Reporte %s generado en %s", cmd.name, strings.TrimSuffix(cmd.path, filepath.Ext(cmd.path))+".png"), nil
@@ -126,10 +129,19 @@ func commandRep(rep *REP) error {
 		dotContent, err = reports.ReportTree(mountedSb, mountedDiskPath)
 	case "sb":
 		dotContent, err = reports.ReportSB(mountedSb)
-	// case "file":
-	// 	dotContent, err = reports.ReportFile(mountedSb, mountedDiskPath)
-	// case "ls":
-	// 	dotContent, err = reports.ReportLS(mountedSb, mountedDiskPath, rep.path_file_ls)
+	case "file":
+		dotContent, err = reports.ReportFile(mountedSb, mountedDiskPath, rep.path_file_ls)
+		if err != nil {
+			return fmt.Errorf("error generando reporte file: %v", err)
+		}
+		// Escribir directamente el contenido en un .txt
+		err = os.WriteFile(rep.path, []byte(dotContent), 0644)
+		if err != nil {
+			return fmt.Errorf("error escribiendo reporte file en %s: %v", rep.path, err)
+		}
+		return nil // No necesitamos generar imagen
+	case "ls":
+		dotContent, err = reports.ReportLS(mountedSb, mountedDiskPath, rep.path_file_ls)
 	default:
 		return fmt.Errorf("reporte no implementado: %s", rep.name)
 	}
